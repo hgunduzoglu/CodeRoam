@@ -1,0 +1,24 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "CodeRoam: test Go",
+      "type": "shell",
+      "command": "make test-go",
+      "group": "test",
+      "problemMatcher": ["$go"]
+    },
+    {
+      "label": "CodeRoam: verify agent guidance",
+      "type": "shell",
+      "command": "python3 scripts/sync-agent-skills.py --check",
+      "group": "test"
+    },
+    {
+      "label": "CodeRoam: start infrastructure",
+      "type": "shell",
+      "command": "make up",
+      "isBackground": true
+    }
+  ]
+}

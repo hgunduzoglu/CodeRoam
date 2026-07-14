@@ -1,0 +1,26 @@
+name: Security
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 4 * * 1"
+
+jobs:
+  govulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.x"
+      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - run: |
+          for module in \
+            services/control-plane services/worker services/relay services/agent \
+            packages/go/authn packages/go/cryptox packages/go/ids \
+            packages/go/observability packages/go/postgresx packages/go/redisx \
+            packages/go/testx protocol/gen/go; do
+            (cd "$module" && govulncheck ./...)
+          done

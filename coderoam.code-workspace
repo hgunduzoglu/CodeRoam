@@ -1,0 +1,18 @@
+{
+  "folders": [
+    { "path": "." },
+    { "name": "Mobile", "path": "apps/mobile" },
+    { "name": "Control Plane", "path": "services/control-plane" },
+    { "name": "Relay", "path": "services/relay" },
+    { "name": "Agent", "path": "services/agent" }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/.dart_tool": true,
+      "**/node_modules": true,
+      "**/protocol/gen": true
+    },
+    "editor.formatOnSave": true,
+    "go.toolsManagement.autoUpdate": true
+  }
+}

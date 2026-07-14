@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package coderoam.pairing.v1;
+
+option go_package = "github.com/hgunduzoglu/coderoam/protocol/gen/go/coderoam/pairing/v1;pairingv1";
+
+message PairingQrPayload {
+  string pairing_id = 1;
+  bytes agent_static_public_key = 2;
+  string agent_key_fingerprint = 3;
+  bytes pairing_secret = 4;
+  uint32 protocol_version = 5;
+  int64 expires_at_unix_seconds = 6;
+}
+
+message PairingComplete {
+  string pairing_id = 1;
+  bytes device_static_public_key = 2;
+  string device_key_fingerprint = 3;
+  bytes agent_static_public_key = 4;
+  string agent_key_fingerprint = 5;
+}

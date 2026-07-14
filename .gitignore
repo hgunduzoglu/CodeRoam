@@ -1,0 +1,52 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+*.p12
+*.mobileprovision
+
+# Go
+bin/
+dist/
+coverage.out
+*.test
+vendor/
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+build/
+coverage/
+ios/Pods/
+ios/.symlinks/
+android/.gradle/
+*.iml
+
+# Node
+node_modules/
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+
+# Local tool configuration
+CLAUDE.local.md
+.claude/settings.local.json
+
+# IDE / OS
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local data
+tmp/
+data/
+*.db
+*.sqlite

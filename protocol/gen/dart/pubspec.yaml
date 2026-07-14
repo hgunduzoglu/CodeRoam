@@ -1,0 +1,10 @@
+name: coderoam_protocol
+description: Generated CodeRoam Protobuf contracts.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ">=3.7.0 <4.0.0"
+
+dependencies:
+  protobuf: ^6.0.0

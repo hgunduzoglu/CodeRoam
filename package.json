@@ -1,0 +1,15 @@
+{
+  "name": "coderoam",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "webview/editor",
+    "webview/terminal"
+  ],
+  "scripts": {
+    "build:web": "npm run build --workspaces",
+    "format:web": "npm run format --workspaces",
+    "lint:web": "npm run lint --workspaces",
+    "test:web": "npm run test --workspaces"
+  }
+}

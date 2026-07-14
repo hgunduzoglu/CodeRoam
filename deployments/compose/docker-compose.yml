@@ -1,0 +1,57 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: coderoam
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - coderoam-postgres:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  control-plane:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/control-plane.Dockerfile
+    environment:
+      CONTROL_PLANE_HTTP_ADDR: :8080
+      POSTGRES_DSN: postgres://postgres:postgres@postgres:5432/coderoam?sslmode=disable
+      REDIS_ADDR: redis:6379
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+      - redis
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/worker.Dockerfile
+    environment:
+      POSTGRES_DSN: postgres://postgres:postgres@postgres:5432/coderoam?sslmode=disable
+      REDIS_ADDR: redis:6379
+    depends_on:
+      - postgres
+      - redis
+
+  relay:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/relay.Dockerfile
+    environment:
+      RELAY_HTTP_ADDR: :8090
+      RELAY_REGION: local
+      REDIS_ADDR: redis:6379
+    ports:
+      - "8090:8090"
+    depends_on:
+      - redis
+
+volumes:
+  coderoam-postgres:

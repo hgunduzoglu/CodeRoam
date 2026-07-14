@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package coderoam.relay.v1;
+
+option go_package = "github.com/hgunduzoglu/coderoam/protocol/gen/go/coderoam/relay/v1;relayv1";
+
+enum EndpointRole {
+  ENDPOINT_ROLE_UNSPECIFIED = 0;
+  ENDPOINT_ROLE_CLIENT = 1;
+  ENDPOINT_ROLE_AGENT = 2;
+}
+
+message ConnectionTicketClaims {
+  string ticket_id = 1;
+  string route_id = 2;
+  EndpointRole role = 3;
+  string endpoint_id = 4;
+  string relay_region = 5;
+  int64 issued_at_unix_seconds = 6;
+  int64 expires_at_unix_seconds = 7;
+  bytes nonce = 8;
+}

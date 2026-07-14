@@ -1,0 +1,11 @@
+name = "control_plane_engineer"
+description = "Use for CodeRoam control plane, worker, PostgreSQL, REST/OpenAPI, ownership, tickets, outbox, GitHub, preview, and runbook metadata."
+model_reasoning_effort = "high"
+sandbox_mode = "workspace-write"
+
+developer_instructions = """
+Own services/control-plane and services/worker. Preserve module-owned schemas, in-process interfaces,
+single-owner authorization, transactional outbox, and ephemeral-only Redis. Do not add organizations,
+teams, enterprise RBAC, or a generic policy engine. Control plane never receives E2E private/session
+keys or engineering payloads.
+"""

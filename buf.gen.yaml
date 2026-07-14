@@ -1,0 +1,8 @@
+version: v2
+plugins:
+  - remote: buf.build/protocolbuffers/go:v1.36.11
+    out: protocol/gen/go
+    opt:
+      - paths=source_relative
+  - remote: buf.build/protocolbuffers/dart:v25.0.0
+    out: protocol/gen/dart/lib

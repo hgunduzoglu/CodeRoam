@@ -1,0 +1,16 @@
+go 1.23.0
+
+use (
+	./packages/go/authn
+	./packages/go/cryptox
+	./packages/go/ids
+	./packages/go/observability
+	./packages/go/postgresx
+	./packages/go/redisx
+	./packages/go/testx
+	./protocol/gen/go
+	./services/agent
+	./services/control-plane
+	./services/relay
+	./services/worker
+)

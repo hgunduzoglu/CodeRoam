@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package coderoam.agent.v1;
+
+option go_package = "github.com/hgunduzoglu/coderoam/protocol/gen/go/coderoam/agent/v1;agentv1";
+
+message ReadFileRequest {
+  string project_id = 1;
+  string relative_path = 2;
+}
+
+message ReadFileResponse {
+  bytes content = 1;
+  string content_hash = 2;
+  uint64 version = 3;
+  bool is_binary = 4;
+}
+
+message WriteFileRequest {
+  string project_id = 1;
+  string relative_path = 2;
+  bytes content = 3;
+  string expected_content_hash = 4;
+  uint64 expected_version = 5;
+}
+
+message WriteFileResponse {
+  string content_hash = 1;
+  uint64 version = 2;
+}
+
+message FileConflict {
+  string current_content_hash = 1;
+  uint64 current_version = 2;
+}

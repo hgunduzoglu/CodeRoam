@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package coderoam.agent.v1;
+
+option go_package = "github.com/hgunduzoglu/coderoam/protocol/gen/go/coderoam/agent/v1;agentv1";
+
+message OpenTerminalRequest {
+  string project_id = 1;
+  uint32 columns = 2;
+  uint32 rows = 3;
+}
+
+message TerminalInput {
+  bytes data = 1;
+}
+
+message TerminalOutput {
+  bytes data = 1;
+}
+
+message ResizeTerminal {
+  uint32 columns = 1;
+  uint32 rows = 2;
+}
+
+message CloseTerminal {
+  string reason = 1;
+}

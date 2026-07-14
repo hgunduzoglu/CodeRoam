@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package coderoam.control.v1;
+
+option go_package = "github.com/hgunduzoglu/coderoam/protocol/gen/go/coderoam/control/v1;controlv1";
+
+message ResumeRequest {
+  bytes previous_session_id = 1;
+  map<uint32, uint64> acknowledged_sequences = 2;
+}
+
+message ResumeAccepted {
+  bytes session_id = 1;
+  map<uint32, uint64> replay_starts = 2;
+}
+
+message ResumeUnavailable {
+  string reason = 1;
+}
+
+message Heartbeat {
+  int64 sent_at_unix_millis = 1;
+}

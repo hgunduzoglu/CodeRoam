@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package coderoam.common.v1;
+
+option go_package = "github.com/hgunduzoglu/coderoam/protocol/gen/go/coderoam/common/v1;commonv1";
+
+enum ChannelKind {
+  CHANNEL_KIND_UNSPECIFIED = 0;
+  CHANNEL_KIND_CONTROL = 1;
+  CHANNEL_KIND_FILESYSTEM = 2;
+  CHANNEL_KIND_EDITOR = 3;
+  CHANNEL_KIND_TERMINAL = 4;
+  CHANNEL_KIND_GIT = 5;
+  CHANNEL_KIND_LSP = 6;
+  CHANNEL_KIND_AI = 7;
+  CHANNEL_KIND_LOGS = 8;
+  CHANNEL_KIND_PORT_FORWARD = 9;
+}
+
+message EncryptedFrame {
+  uint32 protocol_version = 1;
+  bytes session_id = 2;
+  ChannelKind channel = 3;
+  uint32 stream_id = 4;
+  uint64 sequence = 5;
+  uint64 acknowledgement = 6;
+  uint32 flags = 7;
+  bytes ciphertext = 8;
+}
