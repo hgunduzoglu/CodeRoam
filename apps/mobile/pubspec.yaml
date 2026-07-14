@@ -4,13 +4,15 @@ publish_to: none
 version: 0.1.0+1
 
 environment:
-  sdk: ">=3.6.0 <4.0.0"
+  sdk: ">=3.7.0 <4.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
+
   coderoam_protocol:
     path: ../../protocol/gen/dart
+
   flutter_secure_storage: ^9.2.4
   go_router: ^15.0.0
   flutter_riverpod: ^3.0.0
@@ -25,6 +27,7 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
   assets:
     - assets/editor/
     - assets/terminal/

@@ -8,8 +8,12 @@
   ],
   "scripts": {
     "build:web": "npm run build --workspaces",
+    "sync:webviews": "bash scripts/build-webviews.sh",
     "format:web": "npm run format --workspaces",
     "lint:web": "npm run lint --workspaces",
     "test:web": "npm run test --workspaces"
+  },
+  "dependencies": {
+    "@types/node": "^26.1.1"
   }
 }
