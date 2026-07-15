@@ -72,6 +72,114 @@ git branch --show-current
 - Normal sessions use IK and pinned static identities.
 - Every frame, queue, replay buffer, process, output, and deadline is bounded.
 
+# Engineering Principles
+
+Apply these principles pragmatically. They are repository-wide requirements.
+
+## Change Discipline
+
+- Understand the existing implementation and applicable documentation before editing.
+- Inspect all applicable `AGENTS.md` files before making changes.
+- Preserve existing user changes. Never reset, discard, overwrite, or revert them unless explicitly requested.
+- Make the smallest coherent change that fully addresses the task.
+- Keep diffs focused and easy to review.
+- Do not perform unrelated refactoring.
+- Do not rename or move files without a concrete technical reason.
+- Do not add speculative extension points or infrastructure for hypothetical requirements.
+- Do not introduce new dependencies unless the task clearly requires them and the benefit is documented.
+- Do not suppress analyzer, compiler, linter, or test failures without addressing and explaining the underlying issue.
+- Do not commit, push, merge, amend commits, or modify pull requests unless explicitly requested.
+- Do not claim work is complete unless the relevant validation commands have passed.
+
+## DRY
+
+DRY means avoiding duplicated knowledge, not mechanically eliminating every repeated line.
+
+- Do not abstract incidental similarity.
+- Prefer a small amount of obvious duplication over an incorrect shared abstraction.
+- Extract shared behavior only when its responsibility, invariants, and variation are understood.
+- Keep components separate when their semantics differ, even if their current implementation looks similar.
+- Do not create generic `manager`, `handler`, `helper`, `utils`, `common`, or `base` abstractions without a clear domain responsibility.
+- Do not create abstractions solely to reduce line count.
+
+## SOLID
+
+Apply SOLID without unnecessary ceremony.
+
+- Keep responsibilities narrow at meaningful module boundaries.
+- Separate presentation, transport, domain policy, persistence, and temporary test-harness behavior.
+- Depend on small interfaces where a real architectural boundary or required test seam exists.
+- Prefer composition over inheritance.
+- Do not create an interface with only one implementation unless it establishes a meaningful boundary or enables necessary testing.
+- Avoid classes and functions that merely forward calls without adding ownership, policy, validation, or transformation.
+- Keep lifecycle and resource ownership explicit.
+
+## Clean Code
+
+- Use precise, domain-specific names.
+- Prefer explicit and readable code over clever or compressed code.
+- Keep control flow easy to follow.
+- Return, propagate, and surface errors deliberately.
+- Do not silently swallow failures.
+- Comments must explain constraints, intent, platform behavior, or non-obvious decisions rather than restating the implementation.
+- Remove dead code and obsolete comments.
+- Avoid hidden mutable global state.
+- Validate all data crossing process, network, serialization, Flutter-WebView, or other trust boundaries.
+- Keep TypeScript strict.
+- Avoid `any`, unchecked casts, and non-null assertions unless unavoidable and localized.
+- Keep Dart null safety intact.
+- Keep Go errors contextual and preserve error chains where appropriate.
+- Never log secrets, pairing material, authentication data, complete editor documents, arbitrary terminal output, or other sensitive payloads.
+- Logs should contain only the minimum diagnostic metadata required.
+
+## Testing
+
+- Test externally observable behavior and important invariants.
+- Avoid tests coupled to private implementation details.
+- Every bug fix should receive a regression test when reasonably practical.
+- Keep tests deterministic.
+- Do not introduce arbitrary sleeps to resolve races.
+- Prefer explicit synchronization and controllable dependencies.
+- Use dependency injection only where it establishes a meaningful boundary or necessary test seam.
+- Do not instantiate native platform views in ordinary widget or unit tests.
+- Separate automated verification from simulator and physical-device acceptance testing.
+- Do not weaken or delete an existing test merely to make a change pass.
+
+## Validation Discipline
+
+- Inspect the repository's existing scripts before running or inventing commands.
+- Use canonical repository commands rather than duplicating their behavior manually.
+- Format changed files using the language's canonical formatter.
+- Run the narrowest relevant checks first, followed by the applicable package or repository checks.
+- Run checks only for affected areas unless repository policy explicitly requires broader validation.
+- Do not routinely clear build caches or perform clean builds.
+- Use clean builds only when stale generated assets, native state, or build caching is a plausible cause.
+- When generated source is affected, use the repository's canonical generation workflow.
+- Never edit generated files manually.
+
+## Final Report
+
+At the end of a task, report:
+
+1. What was inspected.
+2. Problems or risks found.
+3. Changes made and the reason for each change.
+4. Tests added or updated.
+5. Validation commands run and their actual results.
+6. Files changed.
+7. Manual checks still required.
+8. Remaining risks, limitations, or deferred work.
+9. A suggested commit message.
+
+Clearly distinguish:
+
+- completed and validated work
+- implemented but manually unverified work
+- deferred work
+- failed or unavailable checks
+
+Never describe a task or milestone as complete unless its stated acceptance criteria have actually been satisfied.
+
 ## Commands
 
 ```bash
