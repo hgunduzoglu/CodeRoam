@@ -67,6 +67,10 @@ smoke checks will validate service readiness and migrations without adding M2 do
   premature wrapper could permit shared directional state, concurrent nonce misuse, and optional
   authenticated metadata. M1 exposes only public-key validation and opaque identity ownership;
   M4 will introduce frame encryption together with canonical metadata and audited Noise state.
+- 2026-07-15: Keep parsed public keys opaque, and separate identity loading from explicit atomic
+  creation. Normal startup must fail closed instead of regenerating identity after missing or
+  unreadable storage, because replacement would break peer pinning. The opaque key's zero value
+  cannot be encoded as usable material; callers must obtain initialized keys through parsing.
 
 ## Validation
 

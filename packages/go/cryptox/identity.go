@@ -12,7 +12,10 @@ const x25519PublicKeySize = 32
 var ErrInvalidPublicKey = errors.New("cryptox: invalid X25519 public key")
 
 // X25519PublicKey is the public, non-secret portion of a static identity.
-type X25519PublicKey [x25519PublicKeySize]byte
+type X25519PublicKey struct {
+	encoded     [x25519PublicKeySize]byte
+	initialized bool
+}
 
 // ParseX25519PublicKey validates and copies untrusted encoded public-key bytes.
 func ParseX25519PublicKey(encoded []byte) (X25519PublicKey, error) {
@@ -26,15 +29,20 @@ func ParseX25519PublicKey(encoded []byte) (X25519PublicKey, error) {
 	}
 
 	var key X25519PublicKey
-	copy(key[:], encoded)
+	copy(key.encoded[:], encoded)
+	key.initialized = true
 	return key, nil
 }
 
-// Bytes returns an independent copy of the encoded public key.
-func (k X25519PublicKey) Bytes() []byte {
+// Bytes returns an independent copy of an initialized public key.
+func (k X25519PublicKey) Bytes() ([]byte, error) {
+	if !k.initialized {
+		return nil, ErrInvalidPublicKey
+	}
+
 	encoded := make([]byte, x25519PublicKeySize)
-	copy(encoded, k[:])
-	return encoded
+	copy(encoded, k.encoded[:])
+	return encoded, nil
 }
 
 // StaticIdentity is an opaque private identity owned by an audited crypto adapter.
@@ -43,9 +51,12 @@ type StaticIdentity interface {
 	PublicKey() X25519PublicKey
 }
 
-// IdentityProvider loads the existing static identity or creates one only when none exists.
-// Implementations must return errors for unreadable or corrupt identities instead of replacing
-// them, because silent replacement would break peer key pinning.
+// IdentityProvider keeps normal identity loading separate from explicit first-time creation.
 type IdentityProvider interface {
-	LoadOrCreate(context.Context) (StaticIdentity, error)
+	// Load must return an error when the identity is absent, unreadable, or corrupt. It must never
+	// create or replace an identity because silent replacement would break peer key pinning.
+	Load(context.Context) (StaticIdentity, error)
+
+	// Create must persist a new identity atomically and fail if an identity already exists.
+	Create(context.Context) (StaticIdentity, error)
 }

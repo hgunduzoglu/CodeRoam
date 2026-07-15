@@ -15,13 +15,20 @@ func TestParseX25519PublicKeyValidatesAndCopiesInput(t *testing.T) {
 	}
 
 	encoded[0] = 0x99
-	if got := key.Bytes()[0]; got != 0x42 {
+	parsed, err := key.Bytes()
+	if err != nil {
+		t.Fatalf("Bytes() error = %v", err)
+	}
+	if got := parsed[0]; got != 0x42 {
 		t.Fatalf("parsed key changed with input: first byte = %#x, want %#x", got, 0x42)
 	}
 
-	returned := key.Bytes()
-	returned[1] = 0x99
-	if got := key.Bytes()[1]; got != 0x42 {
+	parsed[1] = 0x99
+	returned, err := key.Bytes()
+	if err != nil {
+		t.Fatalf("Bytes() error = %v", err)
+	}
+	if got := returned[1]; got != 0x42 {
 		t.Fatalf("key changed through Bytes result: second byte = %#x, want %#x", got, 0x42)
 	}
 }
