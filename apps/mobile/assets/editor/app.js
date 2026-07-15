@@ -21868,9 +21868,9 @@
   }
   function snippet(template) {
     let snippet2 = Snippet.parse(template);
-    return (editor, completion, from, to) => {
-      let { text, ranges } = snippet2.instantiate(editor.state, from);
-      let { main } = editor.state.selection;
+    return (editor2, completion, from, to) => {
+      let { text, ranges } = snippet2.instantiate(editor2.state, from);
+      let { main } = editor2.state.selection;
       let spec = {
         changes: { from, to: to == main.from ? main.to : to, insert: Text.of(text) },
         scrollIntoView: true,
@@ -21881,10 +21881,10 @@
       if (ranges.some((r) => r.field > 0)) {
         let active = new ActiveSnippet(ranges, 0);
         let effects = spec.effects = [setActive.of(active)];
-        if (editor.state.field(snippetState, false) === void 0)
+        if (editor2.state.field(snippetState, false) === void 0)
           effects.push(StateEffect.appendConfig.of([snippetState, addSnippetKeymap, snippetPointerHandler, baseTheme$1]));
       }
-      editor.dispatch(editor.state.update(spec));
+      editor2.dispatch(editor2.state.update(spec));
     };
   }
   function moveField(dir) {
@@ -25085,21 +25085,47 @@
     return true;
   });
   const host = document.querySelector("#app");
-  if (!host) throw new Error("missing editor host");
+  if (!host) {
+    throw new Error("Missing editor host.");
+  }
   host.replaceChildren();
+  function send(type, payload = {}, id2) {
+    var _a2;
+    const message = {
+      version: 1,
+      type,
+      payload,
+      ...id2 ? { id: id2 } : {}
+    };
+    (_a2 = window.CodeRoamEditor) == null ? void 0 : _a2.postMessage(JSON.stringify(message));
+  }
   const state = EditorState.create({
-    doc: `// CodeRoam touch spike
-function greet(name: string) {
-  return \`Welcome, \${name}\`;
-}
-
-console.log(greet("CodeRoam"));
-`,
+    doc: "",
     extensions: [
       basicSetup,
       javascript({ typescript: true }),
       keymap.of([...defaultKeymap, ...historyKeymap]),
       EditorView.lineWrapping,
+      EditorView.updateListener.of((update) => {
+        if (update.docChanged) {
+          send("editor.documentChanged", {
+            changes: update.changes.toJSON(),
+            documentLength: update.state.doc.length
+          });
+        }
+        if (update.selectionSet) {
+          const selection = update.state.selection.main;
+          send("editor.selectionChanged", {
+            anchor: selection.anchor,
+            head: selection.head
+          });
+        }
+        if (update.focusChanged) {
+          send("editor.focusChanged", {
+            focused: update.view.hasFocus
+          });
+        }
+      }),
       EditorView.theme({
         "&": {
           height: "100%",
@@ -25137,26 +25163,94 @@ console.log(greet("CodeRoam"));
         ".cm-tooltip": {
           maxWidth: "min(90vw, 520px)"
         }
-      }),
-      EditorView.updateListener.of((update) => {
-        if (!update.docChanged) return;
-        const message = JSON.stringify({
-          version: 1,
-          type: "documentChanged",
-          length: update.state.doc.length
-        });
-        const bridge = window.CodeRoamEditor;
-        bridge == null ? void 0 : bridge.postMessage(message);
       })
     ]
   });
-  const editorBridge = window.CodeRoamEditor;
-  editorBridge == null ? void 0 : editorBridge.postMessage(
-    JSON.stringify({
-      version: 1,
-      type: "editor.ready"
-    })
-  );
-  new EditorView({ state, parent: host });
+  const editor = new EditorView({
+    state,
+    parent: host
+  });
+  window.CodeRoamEditorReceive = (rawMessage) => {
+    if (typeof rawMessage !== "object" || rawMessage === null || Array.isArray(rawMessage)) {
+      send("editor.error", {
+        message: "Flutter message must be an object."
+      });
+      return;
+    }
+    const message = rawMessage;
+    const payload = message.payload ?? {};
+    if (message.version !== 1) {
+      send("editor.error", {
+        message: `Unsupported protocol version: ${message.version}`
+      });
+      return;
+    }
+    switch (message.type) {
+      case "editor.setDocument": {
+        const content2 = payload.content;
+        if (typeof content2 !== "string") {
+          send("editor.error", {
+            message: "editor.setDocument requires string content."
+          });
+          return;
+        }
+        editor.dispatch({
+          changes: {
+            from: 0,
+            to: editor.state.doc.length,
+            insert: content2
+          }
+        });
+        send("editor.documentSet", {
+          documentLength: content2.length
+        });
+        return;
+      }
+      case "editor.focus": {
+        editor.focus();
+        return;
+      }
+      case "editor.getState": {
+        const selection = editor.state.selection.main;
+        send(
+          "editor.state",
+          {
+            content: editor.state.doc.toString(),
+            selection: {
+              anchor: selection.anchor,
+              head: selection.head
+            },
+            focused: editor.hasFocus
+          },
+          message.id
+        );
+        return;
+      }
+      case "editor.setSelection": {
+        const anchor = payload.anchor;
+        const head = payload.head;
+        if (typeof anchor !== "number" || typeof head !== "number") {
+          send("editor.error", {
+            message: "editor.setSelection requires numeric anchor and head."
+          });
+          return;
+        }
+        const documentLength = editor.state.doc.length;
+        const safeAnchor = Math.max(0, Math.min(anchor, documentLength));
+        const safeHead = Math.max(0, Math.min(head, documentLength));
+        editor.dispatch({
+          selection: EditorSelection.single(safeAnchor, safeHead),
+          scrollIntoView: true
+        });
+        return;
+      }
+      default: {
+        send("editor.error", {
+          message: `Unknown Flutter message type: ${message.type}`
+        });
+      }
+    }
+  };
+  send("editor.ready");
 })();
 //# sourceMappingURL=app.js.map

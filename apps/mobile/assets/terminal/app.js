@@ -1,5 +1,44 @@
 (function() {
   "use strict";
+  var addonFit = { exports: {} };
+  var hasRequiredAddonFit;
+  function requireAddonFit() {
+    if (hasRequiredAddonFit) return addonFit.exports;
+    hasRequiredAddonFit = 1;
+    (function(module, exports) {
+      !(function(e, t) {
+        module.exports = t();
+      })(self, (() => (() => {
+        var e = {};
+        return (() => {
+          var t = e;
+          Object.defineProperty(t, "__esModule", { value: true }), t.FitAddon = void 0, t.FitAddon = class {
+            activate(e2) {
+              this._terminal = e2;
+            }
+            dispose() {
+            }
+            fit() {
+              const e2 = this.proposeDimensions();
+              if (!e2 || !this._terminal || isNaN(e2.cols) || isNaN(e2.rows)) return;
+              const t2 = this._terminal._core;
+              this._terminal.rows === e2.rows && this._terminal.cols === e2.cols || (t2._renderService.clear(), this._terminal.resize(e2.cols, e2.rows));
+            }
+            proposeDimensions() {
+              if (!this._terminal) return;
+              if (!this._terminal.element || !this._terminal.element.parentElement) return;
+              const e2 = this._terminal._core, t2 = e2._renderService.dimensions;
+              if (0 === t2.css.cell.width || 0 === t2.css.cell.height) return;
+              const r = 0 === this._terminal.options.scrollback ? 0 : e2.viewport.scrollBarWidth, i = window.getComputedStyle(this._terminal.element.parentElement), o = parseInt(i.getPropertyValue("height")), s = Math.max(0, parseInt(i.getPropertyValue("width"))), n = window.getComputedStyle(this._terminal.element), l = o - (parseInt(n.getPropertyValue("padding-top")) + parseInt(n.getPropertyValue("padding-bottom"))), a = s - (parseInt(n.getPropertyValue("padding-right")) + parseInt(n.getPropertyValue("padding-left"))) - r;
+              return { cols: Math.max(2, Math.floor(a / t2.css.cell.width)), rows: Math.max(1, Math.floor(l / t2.css.cell.height)) };
+            }
+          };
+        })(), e;
+      })()));
+    })(addonFit);
+    return addonFit.exports;
+  }
+  var addonFitExports = requireAddonFit();
   var xterm = { exports: {} };
   var hasRequiredXterm;
   function requireXterm() {
@@ -6124,48 +6163,21 @@ WARNING: This link could potentially be dangerous`)) {
     return xterm.exports;
   }
   var xtermExports = requireXterm();
-  var addonFit = { exports: {} };
-  var hasRequiredAddonFit;
-  function requireAddonFit() {
-    if (hasRequiredAddonFit) return addonFit.exports;
-    hasRequiredAddonFit = 1;
-    (function(module, exports) {
-      !(function(e, t) {
-        module.exports = t();
-      })(self, (() => (() => {
-        var e = {};
-        return (() => {
-          var t = e;
-          Object.defineProperty(t, "__esModule", { value: true }), t.FitAddon = void 0, t.FitAddon = class {
-            activate(e2) {
-              this._terminal = e2;
-            }
-            dispose() {
-            }
-            fit() {
-              const e2 = this.proposeDimensions();
-              if (!e2 || !this._terminal || isNaN(e2.cols) || isNaN(e2.rows)) return;
-              const t2 = this._terminal._core;
-              this._terminal.rows === e2.rows && this._terminal.cols === e2.cols || (t2._renderService.clear(), this._terminal.resize(e2.cols, e2.rows));
-            }
-            proposeDimensions() {
-              if (!this._terminal) return;
-              if (!this._terminal.element || !this._terminal.element.parentElement) return;
-              const e2 = this._terminal._core, t2 = e2._renderService.dimensions;
-              if (0 === t2.css.cell.width || 0 === t2.css.cell.height) return;
-              const r = 0 === this._terminal.options.scrollback ? 0 : e2.viewport.scrollBarWidth, i = window.getComputedStyle(this._terminal.element.parentElement), o = parseInt(i.getPropertyValue("height")), s = Math.max(0, parseInt(i.getPropertyValue("width"))), n = window.getComputedStyle(this._terminal.element), l = o - (parseInt(n.getPropertyValue("padding-top")) + parseInt(n.getPropertyValue("padding-bottom"))), a = s - (parseInt(n.getPropertyValue("padding-right")) + parseInt(n.getPropertyValue("padding-left"))) - r;
-              return { cols: Math.max(2, Math.floor(a / t2.css.cell.width)), rows: Math.max(1, Math.floor(l / t2.css.cell.height)) };
-            }
-          };
-        })(), e;
-      })()));
-    })(addonFit);
-    return addonFit.exports;
-  }
-  var addonFitExports = requireAddonFit();
   const host = document.querySelector("#terminal");
-  if (!host) throw new Error("missing terminal host");
+  if (!host) {
+    throw new Error("Missing terminal host.");
+  }
   host.replaceChildren();
+  function send(type, payload = {}, id) {
+    var _a;
+    const message = {
+      version: 1,
+      type,
+      payload,
+      ...{}
+    };
+    (_a = window.CodeRoamTerminal) == null ? void 0 : _a.postMessage(JSON.stringify(message));
+  }
   const terminal = new xtermExports.Terminal({
     cursorBlink: true,
     convertEol: true,
@@ -6175,28 +6187,82 @@ WARNING: This link could potentially be dangerous`)) {
       background: "#0d0f12"
     }
   });
-  const terminalBridge = window.CodeRoamTerminal;
-  terminalBridge == null ? void 0 : terminalBridge.postMessage(
-    JSON.stringify({
-      version: 1,
-      type: "terminal.ready"
-    })
-  );
-  const fit = new addonFitExports.FitAddon();
-  terminal.loadAddon(fit);
+  const fitAddon = new addonFitExports.FitAddon();
+  terminal.loadAddon(fitAddon);
   terminal.open(host);
-  fit.fit();
-  terminal.writeln("CodeRoam terminal touch spike");
-  terminal.writeln(
-    "Selection, copy/paste, keyboard, resize, and rapid output must be tested."
-  );
-  terminal.write("\r\n$ ");
+  fitAddon.fit();
   terminal.onData((data) => {
-    const bridge = window.CodeRoamTerminal;
-    bridge == null ? void 0 : bridge.postMessage(JSON.stringify({ version: 1, type: "input", data }));
-    terminal.write(data === "\r" ? "\r\n$ " : data);
+    send("terminal.input", {
+      data
+    });
   });
-  const observer = new ResizeObserver(() => fit.fit());
-  observer.observe(host);
+  terminal.onResize(({ cols, rows }) => {
+    send("terminal.resized", {
+      columns: cols,
+      rows
+    });
+  });
+  const resizeObserver = new ResizeObserver(() => {
+    fitAddon.fit();
+  });
+  resizeObserver.observe(host);
+  window.CodeRoamTerminalReceive = (rawMessage) => {
+    if (typeof rawMessage !== "object" || rawMessage === null || Array.isArray(rawMessage)) {
+      send("terminal.error", {
+        message: "Flutter message must be an object."
+      });
+      return;
+    }
+    const message = rawMessage;
+    const payload = message.payload ?? {};
+    if (message.version !== 1) {
+      send("terminal.error", {
+        message: `Unsupported protocol version: ${message.version}`
+      });
+      return;
+    }
+    switch (message.type) {
+      case "terminal.write": {
+        const data = payload.data;
+        if (typeof data !== "string") {
+          send("terminal.error", {
+            message: "terminal.write requires string data."
+          });
+          return;
+        }
+        terminal.write(data);
+        return;
+      }
+      case "terminal.focus": {
+        terminal.focus();
+        return;
+      }
+      case "terminal.clear": {
+        terminal.clear();
+        return;
+      }
+      case "terminal.resize": {
+        const columns = payload.columns;
+        const rows = payload.rows;
+        if (typeof columns !== "number" || typeof rows !== "number") {
+          send("terminal.error", {
+            message: "terminal.resize requires numeric columns and rows."
+          });
+          return;
+        }
+        terminal.resize(
+          Math.max(2, Math.floor(columns)),
+          Math.max(1, Math.floor(rows))
+        );
+        return;
+      }
+      default: {
+        send("terminal.error", {
+          message: `Unknown Flutter message type: ${message.type}`
+        });
+      }
+    }
+  };
+  send("terminal.ready");
 })();
 //# sourceMappingURL=app.js.map

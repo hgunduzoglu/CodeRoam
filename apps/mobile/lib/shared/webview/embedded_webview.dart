@@ -9,9 +9,10 @@ class EmbeddedWebView extends StatefulWidget {
     required this.javascriptChannel,
     required this.backgroundColor,
     this.onMessage,
+    this.onControllerCreated,
     super.key,
   });
-
+  final ValueChanged<WebViewController>? onControllerCreated;
   final String assetPath;
   final String javascriptChannel;
   final Color backgroundColor;
@@ -31,46 +32,48 @@ class _EmbeddedWebViewState extends State<EmbeddedWebView> {
   void initState() {
     super.initState();
 
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(widget.backgroundColor)
-      ..enableZoom(false)
-      ..addJavaScriptChannel(
-        widget.javascriptChannel,
-        onMessageReceived: (message) {
-          widget.onMessage?.call(message.message);
-        },
-      )
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onProgress: (progress) {
-            if (!mounted) return;
+    _controller =
+        WebViewController()
+          ..setJavaScriptMode(JavaScriptMode.unrestricted)
+          ..setBackgroundColor(widget.backgroundColor)
+          ..enableZoom(false)
+          ..addJavaScriptChannel(
+            widget.javascriptChannel,
+            onMessageReceived: (message) {
+              widget.onMessage?.call(message.message);
+            },
+          )
+          ..setNavigationDelegate(
+            NavigationDelegate(
+              onProgress: (progress) {
+                if (!mounted) return;
 
-            setState(() {
-              _progress = progress;
-            });
-          },
-          onPageStarted: (_) {
-            if (!mounted) return;
+                setState(() {
+                  _progress = progress;
+                });
+              },
+              onPageStarted: (_) {
+                if (!mounted) return;
 
-            setState(() {
-              _error = null;
-            });
-          },
-          onWebResourceError: (error) {
-            if (error.isForMainFrame == false || !mounted) return;
+                setState(() {
+                  _error = null;
+                });
+              },
+              onWebResourceError: (error) {
+                if (error.isForMainFrame == false || !mounted) return;
 
-            setState(() {
-              _error = error.description;
-            });
-          },
-          onNavigationRequest: (request) {
-            return _isAllowedAssetUrl(request.url)
-                ? NavigationDecision.navigate
-                : NavigationDecision.prevent;
-          },
-        ),
-      );
+                setState(() {
+                  _error = error.description;
+                });
+              },
+              onNavigationRequest: (request) {
+                return _isAllowedAssetUrl(request.url)
+                    ? NavigationDecision.navigate
+                    : NavigationDecision.prevent;
+              },
+            ),
+          );
+    widget.onControllerCreated?.call(_controller);
 
     unawaited(_loadAsset());
   }
@@ -103,9 +106,7 @@ class _EmbeddedWebViewState extends State<EmbeddedWebView> {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        Positioned.fill(
-          child: WebViewWidget(controller: _controller),
-        ),
+        Positioned.fill(child: WebViewWidget(controller: _controller)),
         if (_progress < 100 && _error == null)
           const Align(
             alignment: Alignment.topCenter,

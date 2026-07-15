@@ -2,19 +2,10 @@ import 'package:coderoam/features/editor/presentation/editor_webview.dart';
 import 'package:coderoam/features/terminal/presentation/terminal_webview.dart';
 import 'package:flutter/material.dart';
 
-enum WorkspaceMode {
-  editor,
-  terminal,
-  review,
-  operations,
-}
+enum WorkspaceMode { editor, terminal, review, operations }
 
 class TouchSpikeShell extends StatefulWidget {
-  const TouchSpikeShell({
-    this.editorSurface,
-    this.terminalSurface,
-    super.key,
-  });
+  const TouchSpikeShell({this.editorSurface, this.terminalSurface, super.key});
 
   final Widget? editorSurface;
   final Widget? terminalSurface;
@@ -90,30 +81,31 @@ class _TouchSpikeShellState extends State<TouchSpikeShell> {
           ),
         ],
       ),
-      bottomNavigationBar: isTablet
-          ? null
-          : NavigationBar(
-              selectedIndex: mode.index,
-              onDestinationSelected: _selectMode,
-              destinations: const [
-                NavigationDestination(
-                  icon: Icon(Icons.code),
-                  label: 'Editor',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.terminal),
-                  label: 'Terminal',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.rate_review_outlined),
-                  label: 'Review',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.monitor_heart_outlined),
-                  label: 'Operate',
-                ),
-              ],
-            ),
+      bottomNavigationBar:
+          isTablet
+              ? null
+              : NavigationBar(
+                selectedIndex: mode.index,
+                onDestinationSelected: _selectMode,
+                destinations: const [
+                  NavigationDestination(
+                    icon: Icon(Icons.code),
+                    label: 'Editor',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.terminal),
+                    label: 'Terminal',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.rate_review_outlined),
+                    label: 'Review',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.monitor_heart_outlined),
+                    label: 'Operate',
+                  ),
+                ],
+              ),
     );
   }
 
@@ -125,10 +117,7 @@ class _TouchSpikeShellState extends State<TouchSpikeShell> {
 }
 
 class _FutureModePlaceholder extends StatelessWidget {
-  const _FutureModePlaceholder({
-    required this.title,
-    required this.detail,
-  });
+  const _FutureModePlaceholder({required this.title, required this.detail});
 
   final String title;
   final String detail;
@@ -152,10 +141,7 @@ class _FutureModePlaceholder extends StatelessWidget {
                       style: Theme.of(context).textTheme.headlineSmall,
                     ),
                     const SizedBox(height: 12),
-                    Text(
-                      detail,
-                      textAlign: TextAlign.center,
-                    ),
+                    Text(detail, textAlign: TextAlign.center),
                   ],
                 ),
               ),

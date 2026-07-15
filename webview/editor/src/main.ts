@@ -1,26 +1,81 @@
 import { basicSetup } from "codemirror";
 import { javascript } from "@codemirror/lang-javascript";
-import { EditorState } from "@codemirror/state";
-import { EditorView, keymap } from "@codemirror/view";
 import { defaultKeymap, historyKeymap } from "@codemirror/commands";
+import { EditorState, EditorSelection } from "@codemirror/state";
+import { EditorView, keymap } from "@codemirror/view";
 
-const host = document.querySelector<HTMLElement>("#app");
-if (!host) throw new Error("missing editor host");
-host.replaceChildren();
+type BridgeMessage = {
+  version: number;
+  id?: string;
+  type: string;
+  payload?: Record<string, unknown>;
+};
 
-const state = EditorState.create({
-  doc: `// CodeRoam touch spike
-function greet(name: string) {
-  return \`Welcome, \${name}\`;
+declare global {
+  interface Window {
+    CodeRoamEditor?: {
+      postMessage(value: string): void;
+    };
+
+    CodeRoamEditorReceive?: (message: unknown) => void;
+  }
 }
 
-console.log(greet("CodeRoam"));
-`,
+const host = document.querySelector<HTMLElement>("#app");
+
+if (!host) {
+  throw new Error("Missing editor host.");
+}
+
+host.replaceChildren();
+
+function send(
+  type: string,
+  payload: Record<string, unknown> = {},
+  id?: string,
+): void {
+  const message: BridgeMessage = {
+    version: 1,
+    type,
+    payload,
+    ...(id ? { id } : {}),
+  };
+
+  window.CodeRoamEditor?.postMessage(JSON.stringify(message));
+}
+
+const state = EditorState.create({
+  doc: "",
   extensions: [
     basicSetup,
     javascript({ typescript: true }),
     keymap.of([...defaultKeymap, ...historyKeymap]),
     EditorView.lineWrapping,
+
+    EditorView.updateListener.of((update) => {
+      if (update.docChanged) {
+        send("editor.documentChanged", {
+          changes: update.changes.toJSON(),
+          documentLength: update.state.doc.length,
+        });
+      }
+
+      if (update.selectionSet) {
+        const selection = update.state.selection.main;
+
+        send("editor.selectionChanged", {
+          anchor: selection.anchor,
+          head: selection.head,
+        });
+      }
+
+      if (update.focusChanged) {
+        send("editor.focusChanged", {
+          focused: update.view.hasFocus,
+        });
+      }
+    }),
+
     EditorView.theme({
       "&": {
         height: "100%",
@@ -67,35 +122,116 @@ console.log(greet("CodeRoam"));
         maxWidth: "min(90vw, 520px)",
       },
     }),
-    EditorView.updateListener.of((update) => {
-      if (!update.docChanged) return;
-      const message = JSON.stringify({
-        version: 1,
-        type: "documentChanged",
-        length: update.state.doc.length,
-      });
-      const bridge = (
-        window as unknown as {
-          CodeRoamEditor?: { postMessage(value: string): void };
-        }
-      ).CodeRoamEditor;
-      bridge?.postMessage(message);
-    }),
   ],
 });
-const editorBridge = (
-  window as unknown as {
-    CodeRoamEditor?: {
-      postMessage(value: string): void;
-    };
+
+const editor = new EditorView({
+  state,
+  parent: host,
+});
+
+window.CodeRoamEditorReceive = (rawMessage: unknown): void => {
+  if (
+    typeof rawMessage !== "object" ||
+    rawMessage === null ||
+    Array.isArray(rawMessage)
+  ) {
+    send("editor.error", {
+      message: "Flutter message must be an object.",
+    });
+    return;
   }
-).CodeRoamEditor;
 
-editorBridge?.postMessage(
-  JSON.stringify({
-    version: 1,
-    type: "editor.ready",
-  }),
-);
+  const message = rawMessage as BridgeMessage;
+  const payload = message.payload ?? {};
 
-new EditorView({ state, parent: host });
+  if (message.version !== 1) {
+    send("editor.error", {
+      message: `Unsupported protocol version: ${message.version}`,
+    });
+    return;
+  }
+
+  switch (message.type) {
+    case "editor.setDocument": {
+      const content = payload.content;
+
+      if (typeof content !== "string") {
+        send("editor.error", {
+          message: "editor.setDocument requires string content.",
+        });
+        return;
+      }
+
+      editor.dispatch({
+        changes: {
+          from: 0,
+          to: editor.state.doc.length,
+          insert: content,
+        },
+      });
+
+      send("editor.documentSet", {
+        documentLength: content.length,
+      });
+
+      return;
+    }
+
+    case "editor.focus": {
+      editor.focus();
+      return;
+    }
+
+    case "editor.getState": {
+      const selection = editor.state.selection.main;
+
+      send(
+        "editor.state",
+        {
+          content: editor.state.doc.toString(),
+          selection: {
+            anchor: selection.anchor,
+            head: selection.head,
+          },
+          focused: editor.hasFocus,
+        },
+        message.id,
+      );
+
+      return;
+    }
+
+    case "editor.setSelection": {
+      const anchor = payload.anchor;
+      const head = payload.head;
+
+      if (typeof anchor !== "number" || typeof head !== "number") {
+        send("editor.error", {
+          message: "editor.setSelection requires numeric anchor and head.",
+        });
+        return;
+      }
+
+      const documentLength = editor.state.doc.length;
+
+      const safeAnchor = Math.max(0, Math.min(anchor, documentLength));
+      const safeHead = Math.max(0, Math.min(head, documentLength));
+
+      editor.dispatch({
+        selection: EditorSelection.single(safeAnchor, safeHead),
+        scrollIntoView: true,
+      });
+
+      return;
+    }
+
+    default: {
+      send("editor.error", {
+        message: `Unknown Flutter message type: ${message.type}`,
+      });
+    }
+  }
+};
+
+send("editor.ready");
