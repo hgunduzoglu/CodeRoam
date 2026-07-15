@@ -37,19 +37,21 @@
       }
 
       .terminal-touch-selection-toolbar {
+        --terminal-selection-toolbar-pointer-x: 50%;
+
         position: absolute;
         z-index: 30;
-        top: max(8px, env(safe-area-inset-top));
-        right: max(8px, env(safe-area-inset-right));
-        display: flex;
-        gap: 8px;
-        padding: 6px;
-        border: 1px solid #475467;
-        border-radius: 12px;
-        background: #202735;
-        box-shadow: 0 4px 16px rgb(0 0 0 / 40%);
+        top: 8px;
+        left: 8px;
+        display: inline-flex;
+        width: max-content;
+        border: 1px solid rgb(255 255 255 / 18%);
+        border-radius: 11px;
+        background: #2c2c2e;
+        box-shadow: 0 4px 14px rgb(0 0 0 / 48%);
         user-select: none;
         -webkit-user-select: none;
+        touch-action: manipulation;
       }
 
       .terminal-touch-selection-toolbar[hidden] {
@@ -57,16 +59,107 @@
       }
 
       .terminal-touch-selection-toolbar button {
-        min-width: 64px;
-        min-height: 48px;
-        border: 1px solid #667085;
-        border-radius: 8px;
-        padding: 0 14px;
-        background: #344054;
+        min-width: 58px;
+        height: 44px;
+        border: 0;
+        border-right: 1px solid rgb(255 255 255 / 14%);
+        padding: 0 12px;
+        background: transparent;
         color: #ffffff;
         font:
-          600 15px system-ui,
+          500 14px system-ui,
           sans-serif;
+        letter-spacing: -0.1px;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .terminal-touch-selection-toolbar button:active {
+        background: rgb(255 255 255 / 12%);
+      }
+
+      .terminal-touch-selection-toolbar button:last-child {
+        border-right: 0;
+      }
+
+      .terminal-touch-selection-toolbar button[data-action="close"] {
+        min-width: 44px;
+        padding: 0;
+        font-size: 21px;
+        font-weight: 400;
+        line-height: 1;
+      }
+
+      .terminal-touch-selection-toolbar::after {
+        position: absolute;
+        left: var(--terminal-selection-toolbar-pointer-x);
+        width: 10px;
+        height: 10px;
+        background: #2c2c2e;
+        content: "";
+        transform: translateX(-50%) rotate(45deg);
+      }
+
+      .terminal-touch-selection-toolbar[data-placement="above"]::after {
+        bottom: -6px;
+        border-right: 1px solid rgb(255 255 255 / 18%);
+        border-bottom: 1px solid rgb(255 255 255 / 18%);
+      }
+
+      .terminal-touch-selection-toolbar[data-placement="below"]::after {
+        top: -6px;
+        border-top: 1px solid rgb(255 255 255 / 18%);
+        border-left: 1px solid rgb(255 255 255 / 18%);
+      }
+
+      .terminal-touch-selection-toolbar[data-placement="none"]::after {
+        display: none;
+      }
+
+      .terminal-touch-selection-handle {
+        --terminal-selection-handle-x: 24px;
+        --terminal-selection-handle-y: 24px;
+
+        position: absolute;
+        z-index: 29;
+        width: 48px;
+        height: 48px;
+        margin: 0;
+        border: 0;
+        padding: 0;
+        background: transparent;
+        appearance: none;
+        -webkit-tap-highlight-color: transparent;
+        touch-action: none;
+      }
+
+      .terminal-touch-selection-handle[hidden] {
+        display: none;
+      }
+
+      .terminal-touch-selection-handle::before {
+        position: absolute;
+        left: calc(var(--terminal-selection-handle-x) - 2px);
+        top: calc(var(--terminal-selection-handle-y) - 22px);
+        width: 4px;
+        height: 22px;
+        border-radius: 2px;
+        background: #84adff;
+        content: "";
+        pointer-events: none;
+      }
+
+      .terminal-touch-selection-handle::after {
+        position: absolute;
+        left: calc(var(--terminal-selection-handle-x) - 7px);
+        top: calc(var(--terminal-selection-handle-y) - 7px);
+        width: 14px;
+        height: 14px;
+        border: 2px solid #ffffff;
+        border-radius: 50%;
+        background: #2970ff;
+        box-sizing: border-box;
+        content: "";
+        pointer-events: none;
       }
     </style>
 

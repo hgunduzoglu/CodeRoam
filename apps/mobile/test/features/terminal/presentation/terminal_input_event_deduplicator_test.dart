@@ -14,6 +14,7 @@ void main() {
       deduplicator.accept(streamId: 'page-a', eventId: 'page-a:1'),
       isTrue,
     );
+    expect(deduplicator.isActiveStream('page-a'), isTrue);
     expect(
       deduplicator.accept(streamId: 'page-a', eventId: 'page-a:1'),
       isFalse,
@@ -36,8 +37,10 @@ void main() {
     );
 
     deduplicator.reset();
+    expect(deduplicator.isActiveStream('page-a'), isFalse);
     expect(deduplicator.beginStream('page-a'), isFalse);
     expect(deduplicator.beginStream('page-b'), isTrue);
+    expect(deduplicator.isActiveStream('page-b'), isTrue);
     expect(
       deduplicator.accept(streamId: 'page-a', eventId: 'page-a:2'),
       isFalse,

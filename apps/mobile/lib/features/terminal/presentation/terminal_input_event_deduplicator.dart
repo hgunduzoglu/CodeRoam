@@ -72,6 +72,10 @@ class TerminalInputEventDeduplicator {
     return true;
   }
 
+  bool isActiveStream(String streamId) {
+    return streamId.isNotEmpty && streamId == _activeStreamId;
+  }
+
   bool _isEventIdForStream({
     required String streamId,
     required String eventId,

@@ -7,7 +7,10 @@ import {
   decodeBridgeMessage,
   type BridgeMessage,
 } from "./bridge_message";
-import { attachTerminalTouchSelection } from "./terminal_touch_selection";
+import {
+  attachTerminalTouchSelection,
+  boundedTerminalClipboardText,
+} from "./terminal_touch_selection";
 
 declare global {
   interface Window {
@@ -87,6 +90,9 @@ const touchSelectionController = attachTerminalTouchSelection({
   onCopy(selection) {
     sendTerminalStreamEvent("terminal.copySelection", { text: selection });
   },
+  onPaste() {
+    sendTerminalStreamEvent("terminal.pasteRequest", {});
+  },
 });
 
 const resizeDisposable = terminal.onResize(({ cols, rows }) => {
@@ -162,6 +168,20 @@ window.CodeRoamTerminalReceive = (rawMessage: unknown): void => {
 
     case "terminal.clear": {
       terminal.clear();
+      return;
+    }
+
+    case "terminal.paste": {
+      const data = boundedTerminalClipboardText(payload.data);
+
+      if (!data) {
+        send("terminal.error", {
+          message: "terminal.paste requires bounded, non-empty string data.",
+        });
+        return;
+      }
+
+      terminal.paste(data);
       return;
     }
 

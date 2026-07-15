@@ -39,6 +39,12 @@ class TerminalBridgeController {
     return _bridge.send(const WebViewBridgeMessage(type: 'terminal.clear'));
   }
 
+  Future<void> paste(String data) {
+    return _bridge.send(
+      WebViewBridgeMessage(type: 'terminal.paste', payload: {'data': data}),
+    );
+  }
+
   Future<void> resize({required int columns, required int rows}) {
     return _bridge.send(
       WebViewBridgeMessage(

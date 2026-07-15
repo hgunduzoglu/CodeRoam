@@ -22,10 +22,7 @@ void main() {
         type: 'terminal.copySelection',
         payload: {
           'text':
-              List.filled(
-                maximumCopiedTerminalSelectionCodeUnits + 1,
-                'x',
-              ).join(),
+              List.filled(maximumTerminalClipboardCodeUnits + 1, 'x').join(),
         },
       ),
       const WebViewBridgeMessage(
@@ -35,5 +32,18 @@ void main() {
     ]) {
       expect(terminalSelectionText(message), isNull);
     }
+  });
+
+  test('bounds clipboard text before paste', () {
+    expect(boundedTerminalClipboardText('paste me'), 'paste me');
+    expect(boundedTerminalClipboardText(null), isNull);
+    expect(boundedTerminalClipboardText(''), isNull);
+    expect(boundedTerminalClipboardText(7), isNull);
+    expect(
+      boundedTerminalClipboardText(
+        List.filled(maximumTerminalClipboardCodeUnits + 1, 'x').join(),
+      ),
+      isNull,
+    );
   });
 }

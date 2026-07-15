@@ -1,18 +1,21 @@
 import 'package:coderoam/shared/webview/webview_bridge.dart';
 
-const int maximumCopiedTerminalSelectionCodeUnits = 262144;
+const int maximumTerminalClipboardCodeUnits = 262144;
+
+String? boundedTerminalClipboardText(Object? value) {
+  if (value is! String ||
+      value.isEmpty ||
+      value.length > maximumTerminalClipboardCodeUnits) {
+    return null;
+  }
+
+  return value;
+}
 
 String? terminalSelectionText(WebViewBridgeMessage message) {
   if (message.type != 'terminal.copySelection') {
     return null;
   }
 
-  final text = message.payload['text'];
-  if (text is! String ||
-      text.isEmpty ||
-      text.length > maximumCopiedTerminalSelectionCodeUnits) {
-    return null;
-  }
-
-  return text;
+  return boundedTerminalClipboardText(message.payload['text']);
 }

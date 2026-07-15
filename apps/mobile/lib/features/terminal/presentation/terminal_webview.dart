@@ -62,7 +62,8 @@ class _TerminalWebViewState extends State<TerminalWebView> {
           widget.onReady?.call();
         }
       } else if (message.type == 'terminal.input' ||
-          message.type == 'terminal.copySelection') {
+          message.type == 'terminal.copySelection' ||
+          message.type == 'terminal.pasteRequest') {
         final eventId = message.id;
         final streamId = message.payload['streamId'];
         if (eventId == null ||
@@ -92,6 +93,11 @@ class _TerminalWebViewState extends State<TerminalWebView> {
           }
 
           unawaited(_copySelection(selection));
+          return;
+        }
+
+        if (message.type == 'terminal.pasteRequest') {
+          unawaited(_pasteClipboard(streamId));
           return;
         }
       } else if (message.type == 'terminal.resized') {
@@ -146,6 +152,41 @@ class _TerminalWebViewState extends State<TerminalWebView> {
         ),
         duration: const Duration(seconds: 2),
       ),
+    );
+  }
+
+  Future<void> _pasteClipboard(String streamId) async {
+    String? clipboardText;
+    try {
+      final clipboardData = await Clipboard.getData(Clipboard.kTextPlain);
+      clipboardText = boundedTerminalClipboardText(clipboardData?.text);
+    } catch (_) {
+      // Clipboard access can fail when the host platform denies the request.
+    }
+
+    if (!mounted || !_inputEventDeduplicator.isActiveStream(streamId)) {
+      return;
+    }
+
+    if (clipboardText == null) {
+      _showClipboardMessage('Clipboard is empty or too large to paste.');
+      return;
+    }
+
+    try {
+      await _controller.paste(clipboardText);
+    } catch (_) {
+      if (mounted && _inputEventDeduplicator.isActiveStream(streamId)) {
+        _showClipboardMessage('Could not paste clipboard text.');
+      }
+    }
+  }
+
+  void _showClipboardMessage(String message) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger?.hideCurrentSnackBar();
+    messenger?.showSnackBar(
+      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
     );
   }
 
