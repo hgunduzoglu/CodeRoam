@@ -25084,6 +25084,34 @@
     ]);
     return true;
   });
+  const bridgeProtocolVersion = 1;
+  function decodeBridgeMessage(rawMessage) {
+    if (!isRecord(rawMessage)) {
+      throw new Error("Flutter message must be an object.");
+    }
+    if (rawMessage.version !== bridgeProtocolVersion) {
+      throw new Error(`Unsupported protocol version: ${rawMessage.version}`);
+    }
+    if (typeof rawMessage.type !== "string" || rawMessage.type.trim().length === 0) {
+      throw new Error("Flutter message type is required.");
+    }
+    if (rawMessage.id !== void 0 && typeof rawMessage.id !== "string") {
+      throw new Error("Flutter message id must be a string.");
+    }
+    const payload = rawMessage.payload === void 0 ? {} : rawMessage.payload;
+    if (!isRecord(payload)) {
+      throw new Error("Flutter message payload must be an object.");
+    }
+    return {
+      version: bridgeProtocolVersion,
+      type: rawMessage.type,
+      payload,
+      ...rawMessage.id === void 0 ? {} : { id: rawMessage.id }
+    };
+  }
+  function isRecord(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
   const host = document.querySelector("#app");
   if (!host) {
     throw new Error("Missing editor host.");
@@ -25092,13 +25120,14 @@
   function send(type, payload = {}, id2) {
     var _a2;
     const message = {
-      version: 1,
+      version: bridgeProtocolVersion,
       type,
       payload,
       ...id2 ? { id: id2 } : {}
     };
     (_a2 = window.CodeRoamEditor) == null ? void 0 : _a2.postMessage(JSON.stringify(message));
   }
+  const flutterDocumentReplacement = Annotation.define();
   const state = EditorState.create({
     doc: "",
     extensions: [
@@ -25108,10 +25137,22 @@
       EditorView.lineWrapping,
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
-          send("editor.documentChanged", {
-            changes: update.changes.toJSON(),
-            documentLength: update.state.doc.length
-          });
+          const wasFlutterDocumentReplacement = update.transactions.some(
+            (transaction) => transaction.annotation(flutterDocumentReplacement) === true
+          );
+          if (!wasFlutterDocumentReplacement) {
+            let insertedLength = 0;
+            let deletedLength = 0;
+            update.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+              deletedLength += toA - fromA;
+              insertedLength += inserted.length;
+            });
+            send("editor.documentChanged", {
+              documentLength: update.state.doc.length,
+              insertedLength,
+              deletedLength
+            });
+          }
         }
         if (update.selectionSet) {
           const selection = update.state.selection.main;
@@ -25171,26 +25212,23 @@
     parent: host
   });
   window.CodeRoamEditorReceive = (rawMessage) => {
-    if (typeof rawMessage !== "object" || rawMessage === null || Array.isArray(rawMessage)) {
+    let message;
+    try {
+      message = decodeBridgeMessage(rawMessage);
+    } catch (error) {
       send("editor.error", {
-        message: "Flutter message must be an object."
+        message: error instanceof Error ? error.message : "Invalid Flutter message."
       });
       return;
     }
-    const message = rawMessage;
-    const payload = message.payload ?? {};
-    if (message.version !== 1) {
-      send("editor.error", {
-        message: `Unsupported protocol version: ${message.version}`
-      });
-      return;
-    }
+    const payload = message.payload;
     switch (message.type) {
       case "editor.setDocument": {
         const content2 = payload.content;
-        if (typeof content2 !== "string") {
+        const language2 = payload.language;
+        if (typeof content2 !== "string" || typeof language2 !== "string") {
           send("editor.error", {
-            message: "editor.setDocument requires string content."
+            message: "editor.setDocument requires string content and language."
           });
           return;
         }
@@ -25199,7 +25237,8 @@
             from: 0,
             to: editor.state.doc.length,
             insert: content2
-          }
+          },
+          annotations: flutterDocumentReplacement.of(true)
         });
         send("editor.documentSet", {
           documentLength: content2.length
@@ -25229,9 +25268,9 @@
       case "editor.setSelection": {
         const anchor = payload.anchor;
         const head = payload.head;
-        if (typeof anchor !== "number" || typeof head !== "number") {
+        if (!isInteger(anchor) || !isInteger(head)) {
           send("editor.error", {
-            message: "editor.setSelection requires numeric anchor and head."
+            message: "editor.setSelection requires integer anchor and head."
           });
           return;
         }
@@ -25252,5 +25291,8 @@
     }
   };
   send("editor.ready");
+  function isInteger(value) {
+    return typeof value === "number" && Number.isInteger(value);
+  }
 })();
 //# sourceMappingURL=app.js.map

@@ -6163,6 +6163,34 @@ WARNING: This link could potentially be dangerous`)) {
     return xterm.exports;
   }
   var xtermExports = requireXterm();
+  const bridgeProtocolVersion = 1;
+  function decodeBridgeMessage(rawMessage) {
+    if (!isRecord(rawMessage)) {
+      throw new Error("Flutter message must be an object.");
+    }
+    if (rawMessage.version !== bridgeProtocolVersion) {
+      throw new Error(`Unsupported protocol version: ${rawMessage.version}`);
+    }
+    if (typeof rawMessage.type !== "string" || rawMessage.type.trim().length === 0) {
+      throw new Error("Flutter message type is required.");
+    }
+    if (rawMessage.id !== void 0 && typeof rawMessage.id !== "string") {
+      throw new Error("Flutter message id must be a string.");
+    }
+    const payload = rawMessage.payload === void 0 ? {} : rawMessage.payload;
+    if (!isRecord(payload)) {
+      throw new Error("Flutter message payload must be an object.");
+    }
+    return {
+      version: bridgeProtocolVersion,
+      type: rawMessage.type,
+      payload,
+      ...rawMessage.id === void 0 ? {} : { id: rawMessage.id }
+    };
+  }
+  function isRecord(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
   const host = document.querySelector("#terminal");
   if (!host) {
     throw new Error("Missing terminal host.");
@@ -6171,7 +6199,7 @@ WARNING: This link could potentially be dangerous`)) {
   function send(type, payload = {}, id) {
     var _a;
     const message = {
-      version: 1,
+      version: bridgeProtocolVersion,
       type,
       payload,
       ...{}
@@ -6190,37 +6218,49 @@ WARNING: This link could potentially be dangerous`)) {
   const fitAddon = new addonFitExports.FitAddon();
   terminal.loadAddon(fitAddon);
   terminal.open(host);
-  fitAddon.fit();
-  terminal.onData((data) => {
+  const inputDisposable = terminal.onData((data) => {
     send("terminal.input", {
       data
     });
   });
-  terminal.onResize(({ cols, rows }) => {
+  const resizeDisposable = terminal.onResize(({ cols, rows }) => {
     send("terminal.resized", {
       columns: cols,
       rows
     });
   });
+  const handleFocus = () => {
+    send("terminal.focusChanged", { focused: true });
+  };
+  const handleBlur = () => {
+    send("terminal.focusChanged", { focused: false });
+  };
+  const terminalTextarea = terminal.textarea;
+  terminalTextarea == null ? void 0 : terminalTextarea.addEventListener("focus", handleFocus);
+  terminalTextarea == null ? void 0 : terminalTextarea.addEventListener("blur", handleBlur);
+  fitAddon.fit();
+  let resizeAnimationFrame;
   const resizeObserver = new ResizeObserver(() => {
-    fitAddon.fit();
+    if (resizeAnimationFrame !== void 0) {
+      return;
+    }
+    resizeAnimationFrame = window.requestAnimationFrame(() => {
+      resizeAnimationFrame = void 0;
+      fitAddon.fit();
+    });
   });
   resizeObserver.observe(host);
   window.CodeRoamTerminalReceive = (rawMessage) => {
-    if (typeof rawMessage !== "object" || rawMessage === null || Array.isArray(rawMessage)) {
+    let message;
+    try {
+      message = decodeBridgeMessage(rawMessage);
+    } catch (error) {
       send("terminal.error", {
-        message: "Flutter message must be an object."
+        message: error instanceof Error ? error.message : "Invalid Flutter message."
       });
       return;
     }
-    const message = rawMessage;
-    const payload = message.payload ?? {};
-    if (message.version !== 1) {
-      send("terminal.error", {
-        message: `Unsupported protocol version: ${message.version}`
-      });
-      return;
-    }
+    const payload = message.payload;
     switch (message.type) {
       case "terminal.write": {
         const data = payload.data;
@@ -6244,16 +6284,13 @@ WARNING: This link could potentially be dangerous`)) {
       case "terminal.resize": {
         const columns = payload.columns;
         const rows = payload.rows;
-        if (typeof columns !== "number" || typeof rows !== "number") {
+        if (!isTerminalDimension(columns, 2) || !isTerminalDimension(rows, 1)) {
           send("terminal.error", {
-            message: "terminal.resize requires numeric columns and rows."
+            message: "terminal.resize requires bounded integer columns and rows."
           });
           return;
         }
-        terminal.resize(
-          Math.max(2, Math.floor(columns)),
-          Math.max(1, Math.floor(rows))
-        );
+        terminal.resize(columns, rows);
         return;
       }
       default: {
@@ -6263,6 +6300,24 @@ WARNING: This link could potentially be dangerous`)) {
       }
     }
   };
+  window.addEventListener(
+    "pagehide",
+    () => {
+      resizeObserver.disconnect();
+      if (resizeAnimationFrame !== void 0) {
+        window.cancelAnimationFrame(resizeAnimationFrame);
+      }
+      inputDisposable.dispose();
+      resizeDisposable.dispose();
+      terminalTextarea == null ? void 0 : terminalTextarea.removeEventListener("focus", handleFocus);
+      terminalTextarea == null ? void 0 : terminalTextarea.removeEventListener("blur", handleBlur);
+      terminal.dispose();
+    },
+    { once: true }
+  );
   send("terminal.ready");
+  function isTerminalDimension(value, minimum) {
+    return typeof value === "number" && Number.isInteger(value) && value >= minimum && value <= 1e3;
+  }
 })();
 //# sourceMappingURL=app.js.map

@@ -2,12 +2,11 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 
-type BridgeMessage = {
-  version: number;
-  id?: string;
-  type: string;
-  payload?: Record<string, unknown>;
-};
+import {
+  bridgeProtocolVersion,
+  decodeBridgeMessage,
+  type BridgeMessage,
+} from "./bridge_message";
 
 declare global {
   interface Window {
@@ -33,7 +32,7 @@ function send(
   id?: string,
 ): void {
   const message: BridgeMessage = {
-    version: 1,
+    version: bridgeProtocolVersion,
     type,
     payload,
     ...(id ? { id } : {}),
@@ -56,48 +55,63 @@ const fitAddon = new FitAddon();
 
 terminal.loadAddon(fitAddon);
 terminal.open(host);
-fitAddon.fit();
 
-terminal.onData((data) => {
+const inputDisposable = terminal.onData((data) => {
   send("terminal.input", {
     data,
   });
 });
 
-terminal.onResize(({ cols, rows }) => {
+const resizeDisposable = terminal.onResize(({ cols, rows }) => {
   send("terminal.resized", {
     columns: cols,
     rows,
   });
 });
 
+const handleFocus = (): void => {
+  send("terminal.focusChanged", { focused: true });
+};
+
+const handleBlur = (): void => {
+  send("terminal.focusChanged", { focused: false });
+};
+
+const terminalTextarea = terminal.textarea;
+terminalTextarea?.addEventListener("focus", handleFocus);
+terminalTextarea?.addEventListener("blur", handleBlur);
+
+fitAddon.fit();
+
+let resizeAnimationFrame: number | undefined;
+
 const resizeObserver = new ResizeObserver(() => {
-  fitAddon.fit();
+  if (resizeAnimationFrame !== undefined) {
+    return;
+  }
+
+  resizeAnimationFrame = window.requestAnimationFrame(() => {
+    resizeAnimationFrame = undefined;
+    fitAddon.fit();
+  });
 });
 
 resizeObserver.observe(host);
 
 window.CodeRoamTerminalReceive = (rawMessage: unknown): void => {
-  if (
-    typeof rawMessage !== "object" ||
-    rawMessage === null ||
-    Array.isArray(rawMessage)
-  ) {
+  let message: BridgeMessage;
+
+  try {
+    message = decodeBridgeMessage(rawMessage);
+  } catch (error) {
     send("terminal.error", {
-      message: "Flutter message must be an object.",
+      message:
+        error instanceof Error ? error.message : "Invalid Flutter message.",
     });
     return;
   }
 
-  const message = rawMessage as BridgeMessage;
-  const payload = message.payload ?? {};
-
-  if (message.version !== 1) {
-    send("terminal.error", {
-      message: `Unsupported protocol version: ${message.version}`,
-    });
-    return;
-  }
+  const payload = message.payload;
 
   switch (message.type) {
     case "terminal.write": {
@@ -128,17 +142,14 @@ window.CodeRoamTerminalReceive = (rawMessage: unknown): void => {
       const columns = payload.columns;
       const rows = payload.rows;
 
-      if (typeof columns !== "number" || typeof rows !== "number") {
+      if (!isTerminalDimension(columns, 2) || !isTerminalDimension(rows, 1)) {
         send("terminal.error", {
-          message: "terminal.resize requires numeric columns and rows.",
+          message: "terminal.resize requires bounded integer columns and rows.",
         });
         return;
       }
 
-      terminal.resize(
-        Math.max(2, Math.floor(columns)),
-        Math.max(1, Math.floor(rows)),
-      );
+      terminal.resize(columns, rows);
 
       return;
     }
@@ -151,4 +162,31 @@ window.CodeRoamTerminalReceive = (rawMessage: unknown): void => {
   }
 };
 
+window.addEventListener(
+  "pagehide",
+  () => {
+    resizeObserver.disconnect();
+
+    if (resizeAnimationFrame !== undefined) {
+      window.cancelAnimationFrame(resizeAnimationFrame);
+    }
+
+    inputDisposable.dispose();
+    resizeDisposable.dispose();
+    terminalTextarea?.removeEventListener("focus", handleFocus);
+    terminalTextarea?.removeEventListener("blur", handleBlur);
+    terminal.dispose();
+  },
+  { once: true },
+);
+
 send("terminal.ready");
+
+function isTerminalDimension(value: unknown, minimum: number): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= minimum &&
+    value <= 1000
+  );
+}

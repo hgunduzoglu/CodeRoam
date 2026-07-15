@@ -10,6 +10,7 @@ class EmbeddedWebView extends StatefulWidget {
     required this.backgroundColor,
     this.onMessage,
     this.onControllerCreated,
+    this.onPageStarted,
     super.key,
   });
   final ValueChanged<WebViewController>? onControllerCreated;
@@ -17,6 +18,7 @@ class EmbeddedWebView extends StatefulWidget {
   final String javascriptChannel;
   final Color backgroundColor;
   final ValueChanged<String>? onMessage;
+  final VoidCallback? onPageStarted;
 
   @override
   State<EmbeddedWebView> createState() => _EmbeddedWebViewState();
@@ -53,6 +55,8 @@ class _EmbeddedWebViewState extends State<EmbeddedWebView> {
                 });
               },
               onPageStarted: (_) {
+                widget.onPageStarted?.call();
+
                 if (!mounted) return;
 
                 setState(() {

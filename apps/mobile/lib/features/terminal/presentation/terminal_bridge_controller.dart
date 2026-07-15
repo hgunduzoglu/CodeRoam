@@ -10,11 +10,19 @@ class TerminalBridgeController {
   final WebViewBridgeController _bridge;
 
   void attach(WebViewController controller) {
-    _bridge.attach(controller);
+    _bridge.attach(controller.runJavaScript);
   }
 
-  void markReady() {
-    _bridge.markReady();
+  bool markReady() {
+    return _bridge.markReady();
+  }
+
+  void markNotReady() {
+    _bridge.markNotReady();
+  }
+
+  void dispose() {
+    _bridge.dispose();
   }
 
   Future<void> write(String data) {

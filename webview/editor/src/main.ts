@@ -1,15 +1,14 @@
 import { basicSetup } from "codemirror";
 import { javascript } from "@codemirror/lang-javascript";
 import { defaultKeymap, historyKeymap } from "@codemirror/commands";
-import { EditorState, EditorSelection } from "@codemirror/state";
+import { Annotation, EditorState, EditorSelection } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 
-type BridgeMessage = {
-  version: number;
-  id?: string;
-  type: string;
-  payload?: Record<string, unknown>;
-};
+import {
+  bridgeProtocolVersion,
+  decodeBridgeMessage,
+  type BridgeMessage,
+} from "./bridge_message";
 
 declare global {
   interface Window {
@@ -35,7 +34,7 @@ function send(
   id?: string,
 ): void {
   const message: BridgeMessage = {
-    version: 1,
+    version: bridgeProtocolVersion,
     type,
     payload,
     ...(id ? { id } : {}),
@@ -43,6 +42,8 @@ function send(
 
   window.CodeRoamEditor?.postMessage(JSON.stringify(message));
 }
+
+const flutterDocumentReplacement = Annotation.define<boolean>();
 
 const state = EditorState.create({
   doc: "",
@@ -54,10 +55,26 @@ const state = EditorState.create({
 
     EditorView.updateListener.of((update) => {
       if (update.docChanged) {
-        send("editor.documentChanged", {
-          changes: update.changes.toJSON(),
-          documentLength: update.state.doc.length,
-        });
+        const wasFlutterDocumentReplacement = update.transactions.some(
+          (transaction) =>
+            transaction.annotation(flutterDocumentReplacement) === true,
+        );
+
+        if (!wasFlutterDocumentReplacement) {
+          let insertedLength = 0;
+          let deletedLength = 0;
+
+          update.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+            deletedLength += toA - fromA;
+            insertedLength += inserted.length;
+          });
+
+          send("editor.documentChanged", {
+            documentLength: update.state.doc.length,
+            insertedLength,
+            deletedLength,
+          });
+        }
       }
 
       if (update.selectionSet) {
@@ -131,34 +148,28 @@ const editor = new EditorView({
 });
 
 window.CodeRoamEditorReceive = (rawMessage: unknown): void => {
-  if (
-    typeof rawMessage !== "object" ||
-    rawMessage === null ||
-    Array.isArray(rawMessage)
-  ) {
+  let message: BridgeMessage;
+
+  try {
+    message = decodeBridgeMessage(rawMessage);
+  } catch (error) {
     send("editor.error", {
-      message: "Flutter message must be an object.",
+      message:
+        error instanceof Error ? error.message : "Invalid Flutter message.",
     });
     return;
   }
 
-  const message = rawMessage as BridgeMessage;
-  const payload = message.payload ?? {};
-
-  if (message.version !== 1) {
-    send("editor.error", {
-      message: `Unsupported protocol version: ${message.version}`,
-    });
-    return;
-  }
+  const payload = message.payload;
 
   switch (message.type) {
     case "editor.setDocument": {
       const content = payload.content;
+      const language = payload.language;
 
-      if (typeof content !== "string") {
+      if (typeof content !== "string" || typeof language !== "string") {
         send("editor.error", {
-          message: "editor.setDocument requires string content.",
+          message: "editor.setDocument requires string content and language.",
         });
         return;
       }
@@ -169,6 +180,7 @@ window.CodeRoamEditorReceive = (rawMessage: unknown): void => {
           to: editor.state.doc.length,
           insert: content,
         },
+        annotations: flutterDocumentReplacement.of(true),
       });
 
       send("editor.documentSet", {
@@ -206,9 +218,9 @@ window.CodeRoamEditorReceive = (rawMessage: unknown): void => {
       const anchor = payload.anchor;
       const head = payload.head;
 
-      if (typeof anchor !== "number" || typeof head !== "number") {
+      if (!isInteger(anchor) || !isInteger(head)) {
         send("editor.error", {
-          message: "editor.setSelection requires numeric anchor and head.",
+          message: "editor.setSelection requires integer anchor and head.",
         });
         return;
       }
@@ -235,3 +247,7 @@ window.CodeRoamEditorReceive = (rawMessage: unknown): void => {
 };
 
 send("editor.ready");
+
+function isInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value);
+}

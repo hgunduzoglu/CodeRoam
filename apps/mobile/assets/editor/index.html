@@ -42,19 +42,22 @@
         window.addEventListener("error", (event) => {
           send({
             version: 1,
-            type: "runtimeError",
-            message: event.message,
-            filename: event.filename,
-            line: event.lineno,
-            column: event.colno,
+            type: "editor.error",
+            payload: {
+              message: event.message,
+              line: event.lineno,
+              column: event.colno,
+            },
           });
         });
 
         window.addEventListener("unhandledrejection", (event) => {
           send({
             version: 1,
-            type: "unhandledRejection",
-            message: String(event.reason),
+            type: "editor.error",
+            payload: {
+              message: "Unhandled editor promise rejection.",
+            },
           });
         });
 

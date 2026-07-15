@@ -1,6 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 
-import 'package:webview_flutter/webview_flutter.dart';
+typedef JavaScriptRunner = Future<void> Function(String source);
 
 class WebViewBridgeMessage {
   const WebViewBridgeMessage({
@@ -32,6 +33,7 @@ class WebViewBridgeMessage {
     }
 
     final version = decoded['version'];
+    final id = decoded['id'];
     final type = decoded['type'];
     final payload = decoded['payload'];
 
@@ -39,12 +41,20 @@ class WebViewBridgeMessage {
       throw FormatException('Unsupported bridge version: $version');
     }
 
-    if (type is! String || type.isEmpty) {
+    if (id != null && id is! String) {
+      throw const FormatException('Bridge message id must be a string.');
+    }
+
+    if (type is! String || type.trim().isEmpty) {
       throw const FormatException('Bridge message type is required.');
     }
 
+    if (decoded.containsKey('payload') && payload is! Map<String, dynamic>) {
+      throw const FormatException('Bridge message payload must be an object.');
+    }
+
     return WebViewBridgeMessage(
-      id: decoded['id'] as String?,
+      id: id as String?,
       type: type,
       payload:
           payload is Map<String, dynamic>
@@ -55,52 +65,163 @@ class WebViewBridgeMessage {
 }
 
 class WebViewBridgeController {
-  WebViewBridgeController({required this.javascriptReceiver});
+  WebViewBridgeController({
+    required this.javascriptReceiver,
+    this.maxPendingMessages = 256,
+  }) {
+    if (!_javascriptReceiverPattern.hasMatch(javascriptReceiver)) {
+      throw ArgumentError.value(
+        javascriptReceiver,
+        'javascriptReceiver',
+        'Must be a window function reference.',
+      );
+    }
+
+    if (maxPendingMessages < 1) {
+      throw ArgumentError.value(
+        maxPendingMessages,
+        'maxPendingMessages',
+        'Must be greater than zero.',
+      );
+    }
+  }
+
+  static final RegExp _javascriptReceiverPattern = RegExp(
+    r'^window\.[A-Za-z_$][A-Za-z0-9_$]*$',
+  );
 
   final String javascriptReceiver;
+  final int maxPendingMessages;
 
-  WebViewController? _webViewController;
+  JavaScriptRunner? _runJavaScript;
   bool _ready = false;
+  bool _draining = false;
+  bool _disposed = false;
 
-  final List<WebViewBridgeMessage> _pendingMessages = [];
+  final List<_PendingBridgeMessage> _pendingMessages = [];
 
-  void attach(WebViewController controller) {
-    _webViewController = controller;
-    _flush();
+  void attach(JavaScriptRunner runJavaScript) {
+    _checkNotDisposed();
+    _runJavaScript = runJavaScript;
+    _scheduleDrain();
   }
 
-  void markReady() {
+  bool markReady() {
+    _checkNotDisposed();
+
+    if (_ready) {
+      return false;
+    }
+
     _ready = true;
-    _flush();
+    _scheduleDrain();
+    return true;
   }
 
-  Future<void> send(WebViewBridgeMessage message) async {
-    if (!_ready || _webViewController == null) {
-      _pendingMessages.add(message);
+  void markNotReady() {
+    if (_disposed) {
       return;
     }
 
-    await _sendNow(message);
+    _ready = false;
   }
 
-  Future<void> _flush() async {
-    if (!_ready || _webViewController == null) {
+  Future<void> send(WebViewBridgeMessage message) {
+    if (_disposed) {
+      return Future<void>.error(
+        StateError('WebView bridge controller is disposed.'),
+      );
+    }
+
+    if (_pendingMessages.length >= maxPendingMessages) {
+      return Future<void>.error(
+        StateError(
+          'WebView bridge pending-message limit of '
+          '$maxPendingMessages reached.',
+        ),
+      );
+    }
+
+    final pendingMessage = _PendingBridgeMessage(message);
+    _pendingMessages.add(pendingMessage);
+    _scheduleDrain();
+    return pendingMessage.completer.future;
+  }
+
+  void _scheduleDrain() {
+    if (_draining ||
+        _disposed ||
+        !_ready ||
+        _runJavaScript == null ||
+        _pendingMessages.isEmpty) {
       return;
     }
 
-    final messages = List<WebViewBridgeMessage>.from(_pendingMessages);
-    _pendingMessages.clear();
+    _draining = true;
+    unawaited(_drain());
+  }
 
-    for (final message in messages) {
-      await _sendNow(message);
+  Future<void> _drain() async {
+    try {
+      while (!_disposed &&
+          _ready &&
+          _runJavaScript != null &&
+          _pendingMessages.isNotEmpty) {
+        final pendingMessage = _pendingMessages.first;
+
+        try {
+          await _runJavaScript!(_javascriptFor(pendingMessage.message));
+          _pendingMessages.remove(pendingMessage);
+          if (!pendingMessage.completer.isCompleted) {
+            pendingMessage.completer.complete();
+          }
+        } catch (error, stackTrace) {
+          _pendingMessages.remove(pendingMessage);
+          if (!pendingMessage.completer.isCompleted) {
+            pendingMessage.completer.completeError(error, stackTrace);
+          }
+        }
+      }
+    } finally {
+      _draining = false;
+      _scheduleDrain();
     }
   }
 
-  Future<void> _sendNow(WebViewBridgeMessage message) async {
+  String _javascriptFor(WebViewBridgeMessage message) {
     final encodedMessage = jsonEncode(message.toJson());
 
-    await _webViewController!.runJavaScript(
-      '$javascriptReceiver($encodedMessage);',
-    );
+    return '$javascriptReceiver($encodedMessage);';
   }
+
+  void dispose() {
+    if (_disposed) {
+      return;
+    }
+
+    _disposed = true;
+    _ready = false;
+    _runJavaScript = null;
+
+    final error = StateError('WebView bridge controller was disposed.');
+    for (final pendingMessage in _pendingMessages) {
+      if (!pendingMessage.completer.isCompleted) {
+        pendingMessage.completer.completeError(error);
+      }
+    }
+    _pendingMessages.clear();
+  }
+
+  void _checkNotDisposed() {
+    if (_disposed) {
+      throw StateError('WebView bridge controller is disposed.');
+    }
+  }
+}
+
+class _PendingBridgeMessage {
+  _PendingBridgeMessage(this.message);
+
+  final WebViewBridgeMessage message;
+  final Completer<void> completer = Completer<void>();
 }
