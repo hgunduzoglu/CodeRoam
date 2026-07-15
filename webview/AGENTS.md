@@ -1,4 +1,3 @@
-````md
 # Embedded WebView Surface Rules
 
 These instructions apply to files under `webview`.
@@ -35,4 +34,3 @@ Use the canonical root command:
 ```sh
 npm run sync:webviews
 ```
-````

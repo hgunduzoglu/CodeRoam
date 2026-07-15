@@ -11,8 +11,9 @@ are implemented. Automated coverage includes bridge decoding and rejection, boun
 queueing, ordered single flushing, reload readiness reset, controller disposal, terminal input
 routing, the Ctrl modifier, the developer key row, and the isolated local echo harness.
 
-`make fmt`, `make lint`, and `make test` pass. This is implementation evidence only and does not
-replace the physical-device checks below.
+The 2026-07-15 validation run recorded for this spike passed `make fmt`, `make lint`, and
+`make test`. Rerun those commands after subsequent changes. This is implementation evidence only
+and does not replace the physical-device checks below.
 
 | Device | OS | Editor | Terminal | Keyboard | Pointer | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
