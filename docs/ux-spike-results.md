@@ -1,8 +1,6 @@
 # Touch UX Spike Results
 
-Status: **physical-device validation in progress**
-
-Fill this document during Milestone 0.
+Status: **complete — Go**
 
 ## Automated preparation
 
@@ -29,12 +27,12 @@ and does not replace the physical-device checks below.
 
 | Device | OS | Editor | Terminal | Keyboard | Pointer | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| iPhone | iOS 26.5.2 | Pass | Partial; compact-menu retest pending | software | n/a | Copy and Paste passed physical retest. The large selection toolbar was replaced with a compact contextual pill and right-side close action; physical retest is pending. |
-| iPad | TBD | TBD | TBD | software + hardware | yes | |
-| Android phone | TBD | TBD | TBD | software | n/a | |
-| Android tablet | TBD | TBD | TBD | software + hardware | yes | |
+| iPhone | iOS 26.5.2 | Pass | Pass | software | n/a | All scripted checks passed, including the final compact selection-menu and short-landscape retests. |
+| iPad | iPadOS (version not recorded) | Pass | Pass | software + hardware | yes | All scripted checks passed, including hardware keyboard, pointer, orientation, and split-screen behavior. |
+| Android phone | Android (version not recorded) | Pass | Pass | software | n/a | All scripted checks passed. |
+| Android tablet | Android (version not recorded) | Pass | Pass | software + hardware | yes | All scripted checks passed, including hardware keyboard, pointer, orientation, and split-screen behavior. |
 
-## Findings awaiting physical retest
+## Resolved physical-device findings
 
 - **iPhone terminal selection:** xterm.js renders terminal text to a canvas, so native WebView text
   selection was unavailable. Physical retest confirmed word selection but exposed missing
@@ -43,17 +41,18 @@ and does not replace the physical-device checks below.
   controls immediately. Paste uses bounded native clipboard data and ignores stale WebView
   responses. Copy and Paste passed the next iPhone retest, which exposed an oversized toolbar. The
   toolbar is now a compact contextual pill anchored above or below the selection with a right-side
-  close action. Physical-device retest of its size and placement is pending.
+  close action. The final physical-device retest passed.
 - **Short landscape navigation:** Opening the software keyboard left too little vertical room for
   the tablet navigation rail and produced a bottom-overflow warning. The rail is now scrollable.
-  Physical-device retest is pending.
-
-## Resolved findings
-
+  The physical-device retest passed.
 - **iPhone completion contrast:** The explicit dark completion theme passed physical retest on
   2026-07-15.
 - **iPhone indentation:** The bounded indentation behavior passed physical retest on 2026-07-15.
 
 ## Decision
 
-Pending.
+**Go.** The CodeMirror and xterm.js surfaces satisfy the Milestone 0 touch acceptance criteria on
+the required iPhone, iPad, Android phone, and Android tablet device classes. Hardware keyboard,
+pointer, orientation, split-screen, keyboard viewport, selection, copy/paste, fast-output, and
+focus-transition checks passed. The exact iPadOS and Android version numbers were not recorded;
+that documentation gap does not block the Milestone 0 product decision.
