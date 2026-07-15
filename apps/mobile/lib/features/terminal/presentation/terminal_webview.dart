@@ -1,9 +1,13 @@
+import 'dart:async';
+
 import 'package:coderoam/features/terminal/presentation/terminal_bridge_controller.dart';
 import 'package:coderoam/features/terminal/presentation/terminal_input_event_deduplicator.dart';
+import 'package:coderoam/features/terminal/presentation/terminal_selection_bridge.dart';
 import 'package:coderoam/shared/webview/embedded_webview.dart';
 import 'package:coderoam/shared/webview/webview_bridge.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class TerminalWebView extends StatefulWidget {
   const TerminalWebView({
@@ -57,7 +61,8 @@ class _TerminalWebViewState extends State<TerminalWebView> {
         if (_controller.markReady()) {
           widget.onReady?.call();
         }
-      } else if (message.type == 'terminal.input') {
+      } else if (message.type == 'terminal.input' ||
+          message.type == 'terminal.copySelection') {
         final eventId = message.id;
         final streamId = message.payload['streamId'];
         if (eventId == null ||
@@ -68,9 +73,25 @@ class _TerminalWebViewState extends State<TerminalWebView> {
             )) {
           if (kDebugMode) {
             debugPrint(
-              '[CodeRoam Terminal] Invalid, duplicate, or stale input ignored.',
+              '[CodeRoam Terminal] Invalid, duplicate, or stale stream event '
+              'ignored.',
             );
           }
+          return;
+        }
+
+        if (message.type == 'terminal.copySelection') {
+          final selection = terminalSelectionText(message);
+          if (selection == null) {
+            if (kDebugMode) {
+              debugPrint(
+                '[CodeRoam Terminal] Invalid terminal selection ignored.',
+              );
+            }
+            return;
+          }
+
+          unawaited(_copySelection(selection));
           return;
         }
       } else if (message.type == 'terminal.resized') {
@@ -99,6 +120,33 @@ class _TerminalWebViewState extends State<TerminalWebView> {
     } on FormatException {
       debugPrint('[CodeRoam Terminal] Invalid bridge message received.');
     }
+  }
+
+  Future<void> _copySelection(String selection) async {
+    var copied = false;
+    try {
+      await Clipboard.setData(ClipboardData(text: selection));
+      copied = true;
+    } catch (_) {
+      // Clipboard access can fail when the host platform denies the request.
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger?.hideCurrentSnackBar();
+    messenger?.showSnackBar(
+      SnackBar(
+        content: Text(
+          copied
+              ? 'Terminal selection copied.'
+              : 'Could not copy terminal selection.',
+        ),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   void _handlePageStarted() {

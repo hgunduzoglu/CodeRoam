@@ -78,4 +78,23 @@ void main() {
     expect(find.text('Esc'), findsNothing);
     expect(find.text('terminal mock', skipOffstage: false), findsOneWidget);
   });
+
+  testWidgets('scrolls tablet navigation in a short landscape viewport', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(900, 260));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: TouchSpikeShell(
+          editorSurface: Center(child: Text('editor mock')),
+          terminalSurface: Center(child: Text('terminal mock')),
+        ),
+      ),
+    );
+
+    expect(find.byType(NavigationRail), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

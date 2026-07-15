@@ -7,6 +7,7 @@ import {
   decodeBridgeMessage,
   type BridgeMessage,
 } from "./bridge_message";
+import { attachTerminalTouchSelection } from "./terminal_touch_selection";
 
 declare global {
   interface Window {
@@ -48,27 +49,44 @@ const terminal = new Terminal({
   scrollback: 3000,
   theme: {
     background: "#0d0f12",
+    selectionBackground: "#475467",
+    selectionForeground: "#ffffff",
   },
 });
 
 const terminalInputStreamId = createTerminalInputStreamId();
-let terminalInputSequence = 0;
+let terminalStreamEventSequence = 0;
 
 const fitAddon = new FitAddon();
 
 terminal.loadAddon(fitAddon);
 terminal.open(host);
 
-const inputDisposable = terminal.onData((data) => {
-  terminalInputSequence += 1;
+function sendTerminalStreamEvent(
+  type: string,
+  payload: Record<string, unknown>,
+): void {
+  terminalStreamEventSequence += 1;
   send(
-    "terminal.input",
+    type,
     {
-      data,
+      ...payload,
       streamId: terminalInputStreamId,
     },
-    `${terminalInputStreamId}:${terminalInputSequence}`,
+    `${terminalInputStreamId}:${terminalStreamEventSequence}`,
   );
+}
+
+const inputDisposable = terminal.onData((data) => {
+  sendTerminalStreamEvent("terminal.input", { data });
+});
+
+const touchSelectionController = attachTerminalTouchSelection({
+  terminal,
+  host,
+  onCopy(selection) {
+    sendTerminalStreamEvent("terminal.copySelection", { text: selection });
+  },
 });
 
 const resizeDisposable = terminal.onResize(({ cols, rows }) => {
@@ -182,6 +200,7 @@ window.addEventListener(
 
     inputDisposable.dispose();
     resizeDisposable.dispose();
+    touchSelectionController.dispose();
     terminalTextarea?.removeEventListener("focus", handleFocus);
     terminalTextarea?.removeEventListener("blur", handleBlur);
     terminal.dispose();

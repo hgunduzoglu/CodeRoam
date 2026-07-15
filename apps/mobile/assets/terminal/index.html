@@ -31,6 +31,43 @@
         padding: 24px;
         font-family: system-ui, sans-serif;
       }
+
+      #terminal {
+        position: relative;
+      }
+
+      .terminal-touch-selection-toolbar {
+        position: absolute;
+        z-index: 30;
+        top: max(8px, env(safe-area-inset-top));
+        right: max(8px, env(safe-area-inset-right));
+        display: flex;
+        gap: 8px;
+        padding: 6px;
+        border: 1px solid #475467;
+        border-radius: 12px;
+        background: #202735;
+        box-shadow: 0 4px 16px rgb(0 0 0 / 40%);
+        user-select: none;
+        -webkit-user-select: none;
+      }
+
+      .terminal-touch-selection-toolbar[hidden] {
+        display: none;
+      }
+
+      .terminal-touch-selection-toolbar button {
+        min-width: 64px;
+        min-height: 48px;
+        border: 1px solid #667085;
+        border-radius: 8px;
+        padding: 0 14px;
+        background: #344054;
+        color: #ffffff;
+        font:
+          600 15px system-ui,
+          sans-serif;
+      }
     </style>
 
     <script>

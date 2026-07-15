@@ -152,6 +152,7 @@ class _TouchSpikeShellState extends State<TouchSpikeShell>
             children: [
               if (isTablet && !isTerminalFullScreen)
                 NavigationRail(
+                  scrollable: true,
                   selectedIndex: mode.index,
                   onDestinationSelected: _selectMode,
                   destinations: const [

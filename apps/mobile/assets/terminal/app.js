@@ -6191,6 +6191,293 @@ WARNING: This link could potentially be dangerous`)) {
   function isRecord(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
   }
+  const longPressDelayMilliseconds = 450;
+  const longPressMovementTolerance = 12;
+  const maximumCopiedTerminalSelectionCodeUnits = 262144;
+  function terminalCellFromPoint({
+    clientX,
+    clientY,
+    screenLeft,
+    screenTop,
+    screenWidth,
+    screenHeight,
+    columns,
+    rows,
+    viewportY
+  }) {
+    if (!Number.isFinite(clientX) || !Number.isFinite(clientY) || screenWidth <= 0 || screenHeight <= 0 || columns < 1 || rows < 1 || viewportY < 0) {
+      return null;
+    }
+    const column = clamp(
+      Math.floor((clientX - screenLeft) / screenWidth * columns),
+      0,
+      columns - 1
+    );
+    const viewportRow = clamp(
+      Math.floor((clientY - screenTop) / screenHeight * rows),
+      0,
+      rows - 1
+    );
+    return { column, row: viewportY + viewportRow };
+  }
+  function terminalWordSelection(cells, column) {
+    if (column < 0 || column >= cells.length) {
+      return null;
+    }
+    if (!isWordCell(cells[column])) {
+      return { column, length: 1 };
+    }
+    let start = column;
+    let end = column;
+    while (start > 0 && isWordCell(cells[start - 1])) {
+      start -= 1;
+    }
+    while (end + 1 < cells.length && isWordCell(cells[end + 1])) {
+      end += 1;
+    }
+    return { column: start, length: end - start + 1 };
+  }
+  function terminalSelectionBetween(first, second, columns) {
+    if (columns < 1) {
+      return null;
+    }
+    const [start, end] = compareTerminalCells(first, second) <= 0 ? [first, second] : [second, first];
+    const length = (end.row - start.row) * columns + end.column - start.column + 1;
+    return length > 0 ? { column: start.column, row: start.row, length } : null;
+  }
+  function attachTerminalTouchSelection({
+    terminal: terminal2,
+    host: host2,
+    onCopy
+  }) {
+    const toolbar = createSelectionToolbar();
+    const copyButton = toolbar.querySelector(
+      '[data-action="copy"]'
+    );
+    const clearButton = toolbar.querySelector(
+      '[data-action="clear"]'
+    );
+    if (!copyButton || !clearButton) {
+      throw new Error("Could not create terminal selection controls.");
+    }
+    host2.appendChild(toolbar);
+    let longPressTimer;
+    let activeTouchIdentifier;
+    let startClientX = 0;
+    let startClientY = 0;
+    let selectionAnchor = null;
+    let isTouchSelecting = false;
+    const updateToolbar = () => {
+      toolbar.hidden = !terminal2.hasSelection();
+    };
+    const selectionDisposable = terminal2.onSelectionChange(updateToolbar);
+    const cancelLongPressTimer = () => {
+      if (longPressTimer !== void 0) {
+        window.clearTimeout(longPressTimer);
+        longPressTimer = void 0;
+      }
+    };
+    const resetGesture = () => {
+      cancelLongPressTimer();
+      activeTouchIdentifier = void 0;
+      selectionAnchor = null;
+      isTouchSelecting = false;
+    };
+    const terminalCellForTouch = (touch) => {
+      var _a;
+      const screen = (_a = terminal2.element) == null ? void 0 : _a.querySelector(".xterm-screen");
+      if (!screen) {
+        return null;
+      }
+      const bounds = screen.getBoundingClientRect();
+      return terminalCellFromPoint({
+        clientX: touch.clientX,
+        clientY: touch.clientY,
+        screenLeft: bounds.left,
+        screenTop: bounds.top,
+        screenWidth: bounds.width,
+        screenHeight: bounds.height,
+        columns: terminal2.cols,
+        rows: terminal2.rows,
+        viewportY: terminal2.buffer.active.viewportY
+      });
+    };
+    const selectWordAt = (position) => {
+      const line = terminal2.buffer.active.getLine(position.row);
+      if (!line) {
+        return;
+      }
+      const cells = Array.from(
+        { length: terminal2.cols },
+        (_, column) => {
+          var _a;
+          return ((_a = line.getCell(column)) == null ? void 0 : _a.getChars()) ?? "";
+        }
+      );
+      const selection = terminalWordSelection(cells, position.column);
+      if (!selection) {
+        return;
+      }
+      terminal2.select(selection.column, position.row, selection.length);
+    };
+    const handleTouchStart = (event) => {
+      if (event.touches.length !== 1 || toolbar.contains(event.target)) {
+        resetGesture();
+        return;
+      }
+      terminal2.clearSelection();
+      const touch = event.touches[0];
+      const cell = terminalCellForTouch(touch);
+      if (!cell) {
+        resetGesture();
+        return;
+      }
+      activeTouchIdentifier = touch.identifier;
+      startClientX = touch.clientX;
+      startClientY = touch.clientY;
+      selectionAnchor = cell;
+      isTouchSelecting = false;
+      cancelLongPressTimer();
+      longPressTimer = window.setTimeout(() => {
+        longPressTimer = void 0;
+        if (activeTouchIdentifier === void 0 || !selectionAnchor) {
+          return;
+        }
+        isTouchSelecting = true;
+        selectWordAt(selectionAnchor);
+      }, longPressDelayMilliseconds);
+    };
+    const handleTouchMove = (event) => {
+      if (activeTouchIdentifier === void 0) {
+        return;
+      }
+      const touch = touchWithIdentifier(event.touches, activeTouchIdentifier);
+      if (!touch) {
+        return;
+      }
+      if (!isTouchSelecting) {
+        const movement = Math.hypot(
+          touch.clientX - startClientX,
+          touch.clientY - startClientY
+        );
+        if (movement > longPressMovementTolerance) {
+          cancelLongPressTimer();
+        }
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const current = terminalCellForTouch(touch);
+      if (!current || !selectionAnchor) {
+        return;
+      }
+      const selection = terminalSelectionBetween(
+        selectionAnchor,
+        current,
+        terminal2.cols
+      );
+      if (selection) {
+        terminal2.select(selection.column, selection.row, selection.length);
+      }
+    };
+    const handleTouchEnd = (event) => {
+      if (activeTouchIdentifier === void 0 || !touchWithIdentifier(event.changedTouches, activeTouchIdentifier)) {
+        return;
+      }
+      if (isTouchSelecting) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      resetGesture();
+    };
+    const handleContextMenu = (event) => {
+      if (terminal2.hasSelection()) {
+        event.preventDefault();
+      }
+    };
+    const handleCopy = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const selection = terminal2.getSelection();
+      if (selection.length === 0 || selection.length > maximumCopiedTerminalSelectionCodeUnits) {
+        return;
+      }
+      onCopy(selection);
+    };
+    const handleClear = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      terminal2.clearSelection();
+    };
+    host2.addEventListener("touchstart", handleTouchStart, {
+      capture: true,
+      passive: true
+    });
+    host2.addEventListener("touchmove", handleTouchMove, {
+      capture: true,
+      passive: false
+    });
+    host2.addEventListener("touchend", handleTouchEnd, {
+      capture: true,
+      passive: false
+    });
+    host2.addEventListener("touchcancel", handleTouchEnd, {
+      capture: true,
+      passive: false
+    });
+    host2.addEventListener("contextmenu", handleContextMenu, true);
+    copyButton.addEventListener("click", handleCopy);
+    clearButton.addEventListener("click", handleClear);
+    return {
+      dispose() {
+        resetGesture();
+        selectionDisposable.dispose();
+        host2.removeEventListener("touchstart", handleTouchStart, true);
+        host2.removeEventListener("touchmove", handleTouchMove, true);
+        host2.removeEventListener("touchend", handleTouchEnd, true);
+        host2.removeEventListener("touchcancel", handleTouchEnd, true);
+        host2.removeEventListener("contextmenu", handleContextMenu, true);
+        copyButton.removeEventListener("click", handleCopy);
+        clearButton.removeEventListener("click", handleClear);
+        toolbar.remove();
+      }
+    };
+  }
+  function createSelectionToolbar() {
+    const toolbar = document.createElement("div");
+    toolbar.className = "terminal-touch-selection-toolbar";
+    toolbar.setAttribute("role", "toolbar");
+    toolbar.setAttribute("aria-label", "Terminal selection");
+    toolbar.hidden = true;
+    const copyButton = document.createElement("button");
+    copyButton.type = "button";
+    copyButton.dataset.action = "copy";
+    copyButton.textContent = "Copy";
+    const clearButton = document.createElement("button");
+    clearButton.type = "button";
+    clearButton.dataset.action = "clear";
+    clearButton.textContent = "Clear";
+    toolbar.append(copyButton, clearButton);
+    return toolbar;
+  }
+  function touchWithIdentifier(touches, identifier) {
+    for (let index = 0; index < touches.length; index += 1) {
+      const touch = touches.item(index);
+      if ((touch == null ? void 0 : touch.identifier) === identifier) {
+        return touch;
+      }
+    }
+    return null;
+  }
+  function compareTerminalCells(first, second) {
+    return first.row === second.row ? first.column - second.column : first.row - second.row;
+  }
+  function isWordCell(value) {
+    return value.length > 0 && !/[\s()[\]{}'"`,]/u.test(value);
+  }
+  function clamp(value, minimum, maximum) {
+    return Math.min(Math.max(value, minimum), maximum);
+  }
   const host = document.querySelector("#terminal");
   if (!host) {
     throw new Error("Missing terminal host.");
@@ -6212,24 +6499,36 @@ WARNING: This link could potentially be dangerous`)) {
     fontSize: 16,
     scrollback: 3e3,
     theme: {
-      background: "#0d0f12"
+      background: "#0d0f12",
+      selectionBackground: "#475467",
+      selectionForeground: "#ffffff"
     }
   });
   const terminalInputStreamId = createTerminalInputStreamId();
-  let terminalInputSequence = 0;
+  let terminalStreamEventSequence = 0;
   const fitAddon = new addonFitExports.FitAddon();
   terminal.loadAddon(fitAddon);
   terminal.open(host);
-  const inputDisposable = terminal.onData((data) => {
-    terminalInputSequence += 1;
+  function sendTerminalStreamEvent(type, payload) {
+    terminalStreamEventSequence += 1;
     send(
-      "terminal.input",
+      type,
       {
-        data,
+        ...payload,
         streamId: terminalInputStreamId
       },
-      `${terminalInputStreamId}:${terminalInputSequence}`
+      `${terminalInputStreamId}:${terminalStreamEventSequence}`
     );
+  }
+  const inputDisposable = terminal.onData((data) => {
+    sendTerminalStreamEvent("terminal.input", { data });
+  });
+  const touchSelectionController = attachTerminalTouchSelection({
+    terminal,
+    host,
+    onCopy(selection) {
+      sendTerminalStreamEvent("terminal.copySelection", { text: selection });
+    }
   });
   const resizeDisposable = terminal.onResize(({ cols, rows }) => {
     send("terminal.resized", {
@@ -6317,6 +6616,7 @@ WARNING: This link could potentially be dangerous`)) {
       }
       inputDisposable.dispose();
       resizeDisposable.dispose();
+      touchSelectionController.dispose();
       terminalTextarea == null ? void 0 : terminalTextarea.removeEventListener("focus", handleFocus);
       terminalTextarea == null ? void 0 : terminalTextarea.removeEventListener("blur", handleBlur);
       terminal.dispose();
