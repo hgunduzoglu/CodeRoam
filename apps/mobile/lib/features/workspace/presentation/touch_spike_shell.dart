@@ -166,6 +166,10 @@ class _TouchSpikeShellState extends State<TouchSpikeShell>
   }
 
   void _selectMode(int index) {
+    if (index < 0 || index >= WorkspaceMode.values.length) {
+      return;
+    }
+
     setState(() {
       mode = WorkspaceMode.values[index];
     });

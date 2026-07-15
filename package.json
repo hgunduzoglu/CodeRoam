@@ -13,7 +13,7 @@
     "lint:web": "npm run lint --workspaces",
     "test:web": "npm run test --workspaces"
   },
-  "dependencies": {
+  "devDependencies": {
     "@types/node": "^26.1.1"
   }
 }

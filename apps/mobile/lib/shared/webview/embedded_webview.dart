@@ -71,7 +71,10 @@ class _EmbeddedWebViewState extends State<EmbeddedWebView> {
                 });
               },
               onNavigationRequest: (request) {
-                return _isAllowedAssetUrl(request.url)
+                return isAllowedEmbeddedAssetUrl(
+                      value: request.url,
+                      assetPath: widget.assetPath,
+                    )
                     ? NavigationDecision.navigate
                     : NavigationDecision.prevent;
               },
@@ -92,18 +95,6 @@ class _EmbeddedWebViewState extends State<EmbeddedWebView> {
         _error = error.toString();
       });
     }
-  }
-
-  bool _isAllowedAssetUrl(String value) {
-    final uri = Uri.tryParse(value);
-
-    if (uri == null) {
-      return false;
-    }
-
-    return uri.scheme == 'file' ||
-        uri.scheme == 'about' ||
-        uri.host == 'appassets.androidplatform.net';
   }
 
   @override
@@ -134,4 +125,137 @@ class _EmbeddedWebViewState extends State<EmbeddedWebView> {
       ],
     );
   }
+}
+
+bool isAllowedEmbeddedAssetUrl({
+  required String value,
+  required String assetPath,
+}) {
+  final uri = Uri.tryParse(value);
+  final assetUri = Uri.tryParse(assetPath);
+
+  if (uri == null ||
+      assetUri == null ||
+      assetUri.hasScheme ||
+      assetUri.hasAuthority ||
+      assetUri.hasAbsolutePath ||
+      assetUri.hasQuery ||
+      assetUri.hasFragment) {
+    return false;
+  }
+
+  late final List<String> uriSegments;
+  late final List<String> assetSegments;
+  try {
+    uriSegments = uri.pathSegments;
+    assetSegments = assetUri.pathSegments;
+  } on FormatException {
+    return false;
+  }
+
+  if (assetSegments.isEmpty || assetSegments.any(_isUnsafePathSegment)) {
+    return false;
+  }
+
+  if (uri == Uri.parse('about:blank')) {
+    return true;
+  }
+
+  if (uri.hasQuery ||
+      uri.hasFragment ||
+      uri.userInfo.isNotEmpty ||
+      uriSegments.any(_isUnsafePathSegment)) {
+    return false;
+  }
+
+  if (uri.scheme != 'file' || uri.host.isNotEmpty || !uri.hasAbsolutePath) {
+    return false;
+  }
+
+  return _pathEquals(uriSegments, [
+        'android_asset',
+        'flutter_assets',
+        ...assetSegments,
+      ]) ||
+      _isAllowedIosAssetPath(uriSegments, assetSegments);
+}
+
+bool _isUnsafePathSegment(String segment) {
+  return segment.isEmpty || segment == '.' || segment == '..';
+}
+
+bool _pathEquals(List<String> actual, List<String> expected) {
+  if (actual.length != expected.length) {
+    return false;
+  }
+
+  for (var index = 0; index < expected.length; index += 1) {
+    if (actual[index] != expected[index]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+bool _isAllowedIosAssetPath(List<String> actual, List<String> assetSegments) {
+  final bundleTail = <String>[
+    'Runner.app',
+    'Frameworks',
+    'App.framework',
+    'flutter_assets',
+    ...assetSegments,
+  ];
+
+  if (!_pathEndsWith(actual, bundleTail)) {
+    return false;
+  }
+
+  final runnerIndex = actual.length - bundleTail.length;
+  if (runnerIndex < 3 ||
+      actual[runnerIndex - 3] != 'Bundle' ||
+      actual[runnerIndex - 2] != 'Application' ||
+      !_isUuid(actual[runnerIndex - 1])) {
+    return false;
+  }
+
+  final containerPrefix = actual.sublist(0, runnerIndex - 3);
+  return _pathEquals(containerPrefix, const ['private', 'var', 'containers']) ||
+      _pathEquals(containerPrefix, const ['var', 'containers']) ||
+      _isIosSimulatorContainerPrefix(containerPrefix);
+}
+
+bool _isIosSimulatorContainerPrefix(List<String> segments) {
+  return segments.length == 9 &&
+      segments[0] == 'Users' &&
+      segments[1].isNotEmpty &&
+      segments[2] == 'Library' &&
+      segments[3] == 'Developer' &&
+      segments[4] == 'CoreSimulator' &&
+      segments[5] == 'Devices' &&
+      _isUuid(segments[6]) &&
+      segments[7] == 'data' &&
+      segments[8] == 'Containers';
+}
+
+bool _isUuid(String value) {
+  return RegExp(
+    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-'
+    r'[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+  ).hasMatch(value);
+}
+
+bool _pathEndsWith(List<String> actual, List<String> expected) {
+  if (actual.length < expected.length) {
+    return false;
+  }
+
+  final offset = actual.length - expected.length;
+  for (var index = 0; index < expected.length; index += 1) {
+    if (actual[offset + index] != expected[index]) {
+      return false;
+    }
+  }
+
+  return true;
 }
