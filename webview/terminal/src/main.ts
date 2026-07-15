@@ -51,15 +51,24 @@ const terminal = new Terminal({
   },
 });
 
+const terminalInputStreamId = createTerminalInputStreamId();
+let terminalInputSequence = 0;
+
 const fitAddon = new FitAddon();
 
 terminal.loadAddon(fitAddon);
 terminal.open(host);
 
 const inputDisposable = terminal.onData((data) => {
-  send("terminal.input", {
-    data,
-  });
+  terminalInputSequence += 1;
+  send(
+    "terminal.input",
+    {
+      data,
+      streamId: terminalInputStreamId,
+    },
+    `${terminalInputStreamId}:${terminalInputSequence}`,
+  );
 });
 
 const resizeDisposable = terminal.onResize(({ cols, rows }) => {
@@ -180,7 +189,19 @@ window.addEventListener(
   { once: true },
 );
 
-send("terminal.ready");
+send("terminal.ready", { streamId: terminalInputStreamId });
+
+function createTerminalInputStreamId(): string {
+  if (typeof globalThis.crypto.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+
+  const values = new Uint32Array(4);
+  globalThis.crypto.getRandomValues(values);
+  return Array.from(values, (value) =>
+    value.toString(16).padStart(8, "0"),
+  ).join("");
+}
 
 function isTerminalDimension(value: unknown, minimum: number): value is number {
   return (

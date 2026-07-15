@@ -17,6 +17,20 @@ void main() {
     );
 
     expect(find.text('editor mock'), findsOneWidget);
+    expect(find.text('terminal mock'), findsNothing);
+    expect(find.byTooltip('Editor spike actions'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Editor spike actions'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Undo'), findsOneWidget);
+    expect(find.text('Redo'), findsOneWidget);
+    expect(find.text('Search and replace'), findsOneWidget);
+    expect(find.text('Load sample fixture'), findsOneWidget);
+    expect(find.text('Load 10,000-line fixture'), findsOneWidget);
+
+    await tester.tapAt(const Offset(16, 700));
+    await tester.pumpAndSettle();
 
     expect(find.text('Esc'), findsNothing);
 
@@ -31,6 +45,8 @@ void main() {
     expect(find.byTooltip('Up arrow'), findsOneWidget);
     expect(find.byTooltip('Down arrow'), findsOneWidget);
     expect(find.byTooltip('Right arrow'), findsOneWidget);
+    expect(find.byTooltip('Enter full-screen terminal'), findsOneWidget);
+    expect(find.text('Burst'), findsOneWidget);
 
     var ctrlChip = tester.widget<FilterChip>(
       find.widgetWithText(FilterChip, 'Ctrl'),
@@ -45,9 +61,21 @@ void main() {
     );
     expect(ctrlChip.selected, isTrue);
 
+    await tester.tap(find.byTooltip('Enter full-screen terminal'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('CodeRoam'), findsNothing);
+    expect(find.byTooltip('Exit full-screen terminal'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Exit full-screen terminal'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('CodeRoam'), findsOneWidget);
+
     await tester.tap(find.byIcon(Icons.code));
     await tester.pumpAndSettle();
 
     expect(find.text('Esc'), findsNothing);
+    expect(find.text('terminal mock', skipOffstage: false), findsOneWidget);
   });
 }

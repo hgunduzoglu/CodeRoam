@@ -1,7 +1,8 @@
 import { basicSetup } from "codemirror";
 import { javascript } from "@codemirror/lang-javascript";
-import { defaultKeymap, historyKeymap } from "@codemirror/commands";
+import { defaultKeymap, historyKeymap, redo, undo } from "@codemirror/commands";
 import { Annotation, EditorState, EditorSelection } from "@codemirror/state";
+import { openSearchPanel } from "@codemirror/search";
 import { EditorView, keymap } from "@codemirror/view";
 
 import {
@@ -9,6 +10,8 @@ import {
   decodeBridgeMessage,
   type BridgeMessage,
 } from "./bridge_message";
+import { codeRoamDiagnosticExtensions } from "./editor_diagnostics";
+import { codeRoamIndentation } from "./editor_indentation";
 
 declare global {
   interface Window {
@@ -50,6 +53,8 @@ const state = EditorState.create({
   extensions: [
     basicSetup,
     javascript({ typescript: true }),
+    codeRoamIndentation,
+    codeRoamDiagnosticExtensions,
     keymap.of([...defaultKeymap, ...historyKeymap]),
     EditorView.lineWrapping,
 
@@ -158,6 +163,11 @@ const state = EditorState.create({
         ".cm-completionDetail": {
           color: "#d0d5dd",
         },
+
+        ".cm-diagnosticAction": {
+          minHeight: "48px",
+          padding: "8px 12px",
+        },
       },
       { dark: true },
     ),
@@ -214,6 +224,21 @@ window.CodeRoamEditorReceive = (rawMessage: unknown): void => {
 
     case "editor.focus": {
       editor.focus();
+      return;
+    }
+
+    case "editor.undo": {
+      undo(editor);
+      return;
+    }
+
+    case "editor.redo": {
+      redo(editor);
+      return;
+    }
+
+    case "editor.openSearch": {
+      openSearchPanel(editor);
       return;
     }
 

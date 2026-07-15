@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:coderoam/features/editor/presentation/editor_bridge_controller.dart';
+import 'package:coderoam/features/editor/presentation/editor_spike_fixture.dart';
 import 'package:coderoam/shared/webview/embedded_webview.dart';
 import 'package:coderoam/shared/webview/webview_bridge.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 class EditorWebView extends StatefulWidget {
@@ -18,12 +20,14 @@ class EditorWebView extends StatefulWidget {
 class _EditorWebViewState extends State<EditorWebView> {
   late final EditorBridgeController _controller;
   late final bool _ownsController;
+  bool _hasStartedPage = false;
 
   @override
   void initState() {
     super.initState();
     _ownsController = widget.controller == null;
     _controller = widget.controller ?? EditorBridgeController();
+    unawaited(_setInitialDocument());
   }
 
   @override
@@ -39,33 +43,37 @@ class _EditorWebViewState extends State<EditorWebView> {
       final message = WebViewBridgeMessage.decode(rawMessage);
 
       if (message.type == 'editor.ready') {
-        if (_controller.markReady()) {
-          unawaited(_setInitialDocument());
-        }
+        _controller.markReady();
       } else if (message.type == 'editor.focusChanged') {
         final focused = message.payload['focused'];
-        debugPrint(
-          '[CodeRoam Editor] focus changed: '
-          '${focused is bool ? focused : 'invalid'}',
-        );
+        if (kDebugMode) {
+          debugPrint(
+            '[CodeRoam Editor] focus changed: '
+            '${focused is bool ? focused : 'invalid'}',
+          );
+        }
       } else if (message.type == 'editor.selectionChanged') {
         final anchor = message.payload['anchor'];
         final head = message.payload['head'];
-        debugPrint(
-          '[CodeRoam Editor] selection changed: '
-          'anchor=${anchor is int ? anchor : 'invalid'}, '
-          'head=${head is int ? head : 'invalid'}',
-        );
+        if (kDebugMode) {
+          debugPrint(
+            '[CodeRoam Editor] selection changed: '
+            'anchor=${anchor is int ? anchor : 'invalid'}, '
+            'head=${head is int ? head : 'invalid'}',
+          );
+        }
       } else if (message.type == 'editor.documentChanged') {
         final documentLength = message.payload['documentLength'];
         final insertedLength = message.payload['insertedLength'];
         final deletedLength = message.payload['deletedLength'];
-        debugPrint(
-          '[CodeRoam Editor] document changed: '
-          'length=${documentLength is int ? documentLength : 'invalid'}, '
-          'inserted=${insertedLength is int ? insertedLength : 'invalid'}, '
-          'deleted=${deletedLength is int ? deletedLength : 'invalid'}',
-        );
+        if (kDebugMode) {
+          debugPrint(
+            '[CodeRoam Editor] document changed: '
+            'length=${documentLength is int ? documentLength : 'invalid'}, '
+            'inserted=${insertedLength is int ? insertedLength : 'invalid'}, '
+            'deleted=${deletedLength is int ? deletedLength : 'invalid'}',
+          );
+        }
       } else if (message.type == 'editor.error') {
         debugPrint('[CodeRoam Editor] bridge error event received.');
       }
@@ -80,18 +88,28 @@ class _EditorWebViewState extends State<EditorWebView> {
     try {
       await _controller.setDocument(
         language: 'typescript',
-        content: '''
-// Document supplied by Flutter through the typed bridge.
-
-function greet(name: string): string {
-  return `Welcome, \${name}`;
-}
-
-console.log(greet("CodeRoam"));
-''',
+        content: sampleEditorSpikeDocument,
       );
     } catch (_) {
       debugPrint('[CodeRoam Editor] Could not send initial document.');
+    }
+  }
+
+  void _handlePageStarted() {
+    _controller.markNotReady();
+
+    if (_hasStartedPage) {
+      unawaited(_restoreDocumentAfterReload());
+    } else {
+      _hasStartedPage = true;
+    }
+  }
+
+  Future<void> _restoreDocumentAfterReload() async {
+    try {
+      await _controller.restoreLastSetDocument();
+    } catch (_) {
+      debugPrint('[CodeRoam Editor] Could not restore document after reload.');
     }
   }
 
@@ -103,7 +121,7 @@ console.log(greet("CodeRoam"));
       backgroundColor: const Color(0xFF111318),
       onControllerCreated: _controller.attach,
       onMessage: _handleMessage,
-      onPageStarted: _controller.markNotReady,
+      onPageStarted: _handlePageStarted,
     );
   }
 }

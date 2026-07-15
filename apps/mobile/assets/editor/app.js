@@ -19121,6 +19121,16 @@
     view.dispatch({ changes, selection, scrollIntoView: true, userEvent: "delete.line" });
     return true;
   };
+  const insertNewlineKeepIndent = ({ state: state2, dispatch }) => {
+    dispatch(state2.update(state2.changeByRange((range) => {
+      let indent = /^\s*/.exec(state2.doc.lineAt(range.from).text)[0];
+      return {
+        changes: { from: range.from, to: range.to, insert: state2.lineBreak + indent },
+        range: EditorSelection.cursor(range.from + indent.length + 1)
+      };
+    }), { scrollIntoView: true, userEvent: "input" }));
+    return true;
+  };
   function isBetweenBrackets(state2, pos) {
     if (/\(\)|\[\]|\{\}/.test(state2.sliceDoc(pos - 1, pos + 1)))
       return { from: pos, to: pos };
@@ -22310,6 +22320,11 @@
   function maybeEnableLint(state2, effects) {
     return state2.field(lintState, false) ? effects : effects.concat(StateEffect.appendConfig.of(lintExtensions));
   }
+  function setDiagnostics(state2, diagnostics) {
+    return {
+      effects: maybeEnableLint(state2, [setDiagnosticsEffect.of(diagnostics)])
+    };
+  }
   const setDiagnosticsEffect = /* @__PURE__ */ StateEffect.define();
   const togglePanel = /* @__PURE__ */ StateEffect.define();
   const movePanelSelection = /* @__PURE__ */ StateEffect.define();
@@ -22411,6 +22426,65 @@
     { key: "Mod-Shift-m", run: openLintPanel, preventDefault: true },
     { key: "F8", run: nextDiagnostic }
   ];
+  const lintPlugin = /* @__PURE__ */ ViewPlugin.fromClass(class {
+    constructor(view) {
+      this.view = view;
+      this.timeout = -1;
+      this.set = true;
+      let { delay } = view.state.facet(lintConfig);
+      this.lintTime = Date.now() + delay;
+      this.run = this.run.bind(this);
+      this.timeout = setTimeout(this.run, delay);
+    }
+    run() {
+      clearTimeout(this.timeout);
+      let now = Date.now();
+      if (now < this.lintTime - 10) {
+        this.timeout = setTimeout(this.run, this.lintTime - now);
+      } else {
+        this.set = false;
+        let { state: state2 } = this.view, { sources } = state2.facet(lintConfig);
+        if (sources.length)
+          batchResults(sources.map((s) => Promise.resolve(s(this.view))), (annotations) => {
+            if (this.view.state.doc == state2.doc)
+              this.view.dispatch(setDiagnostics(this.view.state, annotations.reduce((a, b) => a.concat(b))));
+          }, (error) => {
+            logException(this.view.state, error);
+          });
+      }
+    }
+    update(update) {
+      let config2 = update.state.facet(lintConfig);
+      if (update.docChanged || config2 != update.startState.facet(lintConfig) || config2.needsRefresh && config2.needsRefresh(update)) {
+        this.lintTime = Date.now() + config2.delay;
+        if (!this.set) {
+          this.set = true;
+          this.timeout = setTimeout(this.run, config2.delay);
+        }
+      }
+    }
+    force() {
+      if (this.set) {
+        this.lintTime = Date.now();
+        this.run();
+      }
+    }
+    destroy() {
+      clearTimeout(this.timeout);
+    }
+  });
+  function batchResults(promises, sink, error) {
+    let collected = [], timeout = -1;
+    for (let p of promises)
+      p.then((value) => {
+        collected.push(value);
+        clearTimeout(timeout);
+        if (collected.length == promises.length)
+          sink(collected);
+        else
+          timeout = setTimeout(() => sink(collected), 200);
+      }, error);
+  }
   const lintConfig = /* @__PURE__ */ Facet.define({
     combine(input) {
       return {
@@ -22434,6 +22508,13 @@
   });
   function combineFilter(a, b) {
     return !a ? b : !b ? a : (d, s) => b(a(d, s), s);
+  }
+  function linter(source, config2 = {}) {
+    return [
+      lintConfig.of({ source, config: config2 }),
+      lintPlugin,
+      lintExtensions
+    ];
   }
   function assignKeys(actions) {
     let assigned = [];
@@ -22785,6 +22866,145 @@
     }
     return sev;
   }
+  class LintGutterMarker extends GutterMarker {
+    constructor(diagnostics) {
+      super();
+      this.diagnostics = diagnostics;
+      this.severity = maxSeverity(diagnostics);
+    }
+    toDOM(view) {
+      let elt = document.createElement("div");
+      elt.className = "cm-lint-marker cm-lint-marker-" + this.severity;
+      let diagnostics = this.diagnostics;
+      let diagnosticsFilter = view.state.facet(lintGutterConfig).tooltipFilter;
+      if (diagnosticsFilter)
+        diagnostics = diagnosticsFilter(diagnostics, view.state);
+      if (diagnostics.length)
+        elt.onmouseover = () => gutterMarkerMouseOver(view, elt, diagnostics);
+      return elt;
+    }
+  }
+  function trackHoverOn(view, marker) {
+    let mousemove = (event) => {
+      let rect = marker.getBoundingClientRect();
+      if (event.clientX > rect.left - 10 && event.clientX < rect.right + 10 && event.clientY > rect.top - 10 && event.clientY < rect.bottom + 10)
+        return;
+      for (let target = event.target; target; target = target.parentNode) {
+        if (target.nodeType == 1 && target.classList.contains("cm-tooltip-lint"))
+          return;
+      }
+      window.removeEventListener("mousemove", mousemove);
+      if (view.state.field(lintGutterTooltip))
+        view.dispatch({ effects: setLintGutterTooltip.of(null) });
+    };
+    window.addEventListener("mousemove", mousemove);
+  }
+  function gutterMarkerMouseOver(view, marker, diagnostics) {
+    function hovered() {
+      let line = view.elementAtHeight(marker.getBoundingClientRect().top + 5 - view.documentTop);
+      const linePos = view.coordsAtPos(line.from);
+      if (linePos) {
+        view.dispatch({ effects: setLintGutterTooltip.of({
+          pos: line.from,
+          above: false,
+          clip: false,
+          create() {
+            return {
+              dom: diagnosticsTooltip(view, diagnostics),
+              getCoords: () => marker.getBoundingClientRect()
+            };
+          }
+        }) });
+      }
+      marker.onmouseout = marker.onmousemove = null;
+      trackHoverOn(view, marker);
+    }
+    let { hoverTime } = view.state.facet(lintGutterConfig);
+    let hoverTimeout = setTimeout(hovered, hoverTime);
+    marker.onmouseout = () => {
+      clearTimeout(hoverTimeout);
+      marker.onmouseout = marker.onmousemove = null;
+    };
+    marker.onmousemove = () => {
+      clearTimeout(hoverTimeout);
+      hoverTimeout = setTimeout(hovered, hoverTime);
+    };
+  }
+  function markersForDiagnostics(doc2, diagnostics) {
+    let byLine = /* @__PURE__ */ Object.create(null);
+    for (let diagnostic of diagnostics) {
+      let line = doc2.lineAt(diagnostic.from);
+      (byLine[line.from] || (byLine[line.from] = [])).push(diagnostic);
+    }
+    let markers = [];
+    for (let line in byLine) {
+      markers.push(new LintGutterMarker(byLine[line]).range(+line));
+    }
+    return RangeSet.of(markers, true);
+  }
+  const lintGutterExtension = /* @__PURE__ */ gutter({
+    class: "cm-gutter-lint",
+    markers: (view) => view.state.field(lintGutterMarkers),
+    widgetMarker: (view, widget, block) => {
+      let diagnostics = [];
+      view.state.field(lintGutterMarkers).between(block.from, block.to, (from, to, value) => {
+        if (from > block.from && from < block.to)
+          diagnostics.push(...value.diagnostics);
+      });
+      return diagnostics.length ? new LintGutterMarker(diagnostics) : null;
+    }
+  });
+  const lintGutterMarkers = /* @__PURE__ */ StateField.define({
+    create() {
+      return RangeSet.empty;
+    },
+    update(markers, tr) {
+      markers = markers.map(tr.changes);
+      let diagnosticFilter = tr.state.facet(lintGutterConfig).markerFilter;
+      for (let effect of tr.effects) {
+        if (effect.is(setDiagnosticsEffect)) {
+          let diagnostics = effect.value;
+          if (diagnosticFilter)
+            diagnostics = diagnosticFilter(diagnostics || [], tr.state);
+          markers = markersForDiagnostics(tr.state.doc, diagnostics.slice(0));
+        }
+      }
+      return markers;
+    }
+  });
+  const setLintGutterTooltip = /* @__PURE__ */ StateEffect.define();
+  const lintGutterTooltip = /* @__PURE__ */ StateField.define({
+    create() {
+      return null;
+    },
+    update(tooltip, tr) {
+      if (tooltip && tr.docChanged)
+        tooltip = hideTooltip(tr, tooltip) ? null : { ...tooltip, pos: tr.changes.mapPos(tooltip.pos) };
+      return tr.effects.reduce((t2, e) => e.is(setLintGutterTooltip) ? e.value : t2, tooltip);
+    },
+    provide: (field) => showTooltip.from(field)
+  });
+  const lintGutterTheme = /* @__PURE__ */ EditorView.baseTheme({
+    ".cm-gutter-lint": {
+      width: "1.4em",
+      "& .cm-gutterElement": {
+        padding: ".2em"
+      }
+    },
+    ".cm-lint-marker": {
+      width: "1em",
+      height: "1em"
+    },
+    ".cm-lint-marker-info": {
+      content: /* @__PURE__ */ svg(`<path fill="#aaf" stroke="#77e" stroke-width="6" stroke-linejoin="round" d="M5 5L35 5L35 35L5 35Z"/>`)
+    },
+    ".cm-lint-marker-warning": {
+      content: /* @__PURE__ */ svg(`<path fill="#fe8" stroke="#fd7" stroke-width="6" stroke-linejoin="round" d="M20 6L37 35L3 35Z"/>`)
+    },
+    ".cm-lint-marker-error": {
+      content: /* @__PURE__ */ svg(`<circle cx="20" cy="20" r="15" fill="#f87" stroke="#f43" stroke-width="6"/>`)
+    }
+  });
   const lintHover = /* @__PURE__ */ hoverTooltip(lintTooltip, { hideOn: hideTooltip });
   const lintExtensions = [
     lintState,
@@ -22797,6 +23017,18 @@
     lintHover,
     baseTheme
   ];
+  const lintGutterConfig = /* @__PURE__ */ Facet.define({
+    combine(configs) {
+      return combineConfig(configs, {
+        hoverTime: 300,
+        markerFilter: null,
+        tooltipFilter: null
+      });
+    }
+  });
+  function lintGutter(config2 = {}) {
+    return [lintGutterConfig.of(config2), lintGutterMarkers, lintGutterExtension, lintGutterTheme, lintGutterTooltip];
+  }
   const basicSetup = /* @__PURE__ */ (() => [
     lineNumbers(),
     highlightActiveLineGutter(),
@@ -25112,6 +25344,75 @@
   function isRecord(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
   }
+  const diagnosticTarget = "console.log";
+  function findConsoleLogRanges(document2) {
+    const ranges = [];
+    let from = document2.indexOf(diagnosticTarget);
+    while (from !== -1) {
+      ranges.push({ from, to: from + diagnosticTarget.length });
+      from = document2.indexOf(diagnosticTarget, from + diagnosticTarget.length);
+    }
+    return ranges;
+  }
+  function codeRoamDiagnostics(view) {
+    return findConsoleLogRanges(view.state.doc.toString()).map(
+      ({ from, to }) => ({
+        from,
+        to,
+        severity: "warning",
+        source: "CodeRoam M0 fixture",
+        message: "Touch this diagnostic and apply the mock code action.",
+        actions: [
+          {
+            name: "Use console.info",
+            apply(editor2, actionFrom, actionTo) {
+              editor2.dispatch({
+                changes: {
+                  from: actionFrom,
+                  to: actionTo,
+                  insert: "console.info"
+                }
+              });
+            }
+          }
+        ]
+      })
+    );
+  }
+  const codeRoamDiagnosticExtensions = [
+    lintGutter(),
+    linter(codeRoamDiagnostics, { delay: 100 })
+  ];
+  const boundedInsertNewlineAndIndent = (view) => {
+    return shouldKeepCurrentLineIndentation(view.state) ? insertNewlineKeepIndent(view) : insertNewlineAndIndent(view);
+  };
+  const codeRoamIndentation = [
+    indentUnit.of("  "),
+    Prec.highest(
+      keymap.of([
+        {
+          key: "Enter",
+          run: boundedInsertNewlineAndIndent,
+          shift: boundedInsertNewlineAndIndent
+        }
+      ])
+    )
+  ];
+  function shouldKeepCurrentLineIndentation(state2) {
+    return state2.selection.ranges.some((range) => {
+      if (!range.empty) {
+        return false;
+      }
+      const line = state2.doc.lineAt(range.head);
+      const context = new IndentContext(state2, { simulateBreak: range.head });
+      const suggestedIndentation = getIndentation(context, range.head);
+      if (suggestedIndentation == null) {
+        return false;
+      }
+      const currentIndentation = context.lineIndent(line.from, -1);
+      return suggestedIndentation > currentIndentation + context.unit;
+    });
+  }
   const host = document.querySelector("#app");
   if (!host) {
     throw new Error("Missing editor host.");
@@ -25133,6 +25434,8 @@
     extensions: [
       basicSetup,
       javascript({ typescript: true }),
+      codeRoamIndentation,
+      codeRoamDiagnosticExtensions,
       keymap.of([...defaultKeymap, ...historyKeymap]),
       EditorView.lineWrapping,
       EditorView.updateListener.of((update) => {
@@ -25219,6 +25522,10 @@
           },
           ".cm-completionDetail": {
             color: "#d0d5dd"
+          },
+          ".cm-diagnosticAction": {
+            minHeight: "48px",
+            padding: "8px 12px"
           }
         },
         { dark: true }
@@ -25265,6 +25572,18 @@
       }
       case "editor.focus": {
         editor.focus();
+        return;
+      }
+      case "editor.undo": {
+        undo(editor);
+        return;
+      }
+      case "editor.redo": {
+        redo(editor);
+        return;
+      }
+      case "editor.openSearch": {
+        openSearchPanel(editor);
         return;
       }
       case "editor.getState": {

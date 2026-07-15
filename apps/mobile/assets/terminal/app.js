@@ -6202,7 +6202,7 @@ WARNING: This link could potentially be dangerous`)) {
       version: bridgeProtocolVersion,
       type,
       payload,
-      ...{}
+      ...id ? { id } : {}
     };
     (_a = window.CodeRoamTerminal) == null ? void 0 : _a.postMessage(JSON.stringify(message));
   }
@@ -6215,13 +6215,21 @@ WARNING: This link could potentially be dangerous`)) {
       background: "#0d0f12"
     }
   });
+  const terminalInputStreamId = createTerminalInputStreamId();
+  let terminalInputSequence = 0;
   const fitAddon = new addonFitExports.FitAddon();
   terminal.loadAddon(fitAddon);
   terminal.open(host);
   const inputDisposable = terminal.onData((data) => {
-    send("terminal.input", {
-      data
-    });
+    terminalInputSequence += 1;
+    send(
+      "terminal.input",
+      {
+        data,
+        streamId: terminalInputStreamId
+      },
+      `${terminalInputStreamId}:${terminalInputSequence}`
+    );
   });
   const resizeDisposable = terminal.onResize(({ cols, rows }) => {
     send("terminal.resized", {
@@ -6315,7 +6323,18 @@ WARNING: This link could potentially be dangerous`)) {
     },
     { once: true }
   );
-  send("terminal.ready");
+  send("terminal.ready", { streamId: terminalInputStreamId });
+  function createTerminalInputStreamId() {
+    if (typeof globalThis.crypto.randomUUID === "function") {
+      return globalThis.crypto.randomUUID();
+    }
+    const values = new Uint32Array(4);
+    globalThis.crypto.getRandomValues(values);
+    return Array.from(
+      values,
+      (value) => value.toString(16).padStart(8, "0")
+    ).join("");
+  }
   function isTerminalDimension(value, minimum) {
     return typeof value === "number" && Number.isInteger(value) && value >= minimum && value <= 1e3;
   }

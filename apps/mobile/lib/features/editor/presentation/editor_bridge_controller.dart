@@ -8,6 +8,7 @@ class EditorBridgeController {
       );
 
   final WebViewBridgeController _bridge;
+  WebViewBridgeMessage? _lastSetDocumentMessage;
 
   void attach(WebViewController controller) {
     _bridge.attach(controller.runJavaScript);
@@ -29,16 +30,33 @@ class EditorBridgeController {
     required String content,
     required String language,
   }) {
-    return _bridge.send(
-      WebViewBridgeMessage(
-        type: 'editor.setDocument',
-        payload: {'content': content, 'language': language},
-      ),
+    final message = WebViewBridgeMessage(
+      type: 'editor.setDocument',
+      payload: {'content': content, 'language': language},
     );
+    _lastSetDocumentMessage = message;
+    return _bridge.send(message);
+  }
+
+  Future<void> restoreLastSetDocument() {
+    final message = _lastSetDocumentMessage;
+    return message == null ? Future<void>.value() : _bridge.send(message);
   }
 
   Future<void> focus() {
     return _bridge.send(const WebViewBridgeMessage(type: 'editor.focus'));
+  }
+
+  Future<void> undo() {
+    return _bridge.send(const WebViewBridgeMessage(type: 'editor.undo'));
+  }
+
+  Future<void> redo() {
+    return _bridge.send(const WebViewBridgeMessage(type: 'editor.redo'));
+  }
+
+  Future<void> openSearch() {
+    return _bridge.send(const WebViewBridgeMessage(type: 'editor.openSearch'));
   }
 
   Future<void> requestState() {

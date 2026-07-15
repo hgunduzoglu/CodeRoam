@@ -1,6 +1,8 @@
 import 'package:coderoam/features/terminal/presentation/terminal_bridge_controller.dart';
+import 'package:coderoam/features/terminal/presentation/terminal_input_event_deduplicator.dart';
 import 'package:coderoam/shared/webview/embedded_webview.dart';
 import 'package:coderoam/shared/webview/webview_bridge.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 class TerminalWebView extends StatefulWidget {
@@ -22,6 +24,8 @@ class TerminalWebView extends StatefulWidget {
 class _TerminalWebViewState extends State<TerminalWebView> {
   late final TerminalBridgeController _controller;
   late final bool _ownsController;
+  final TerminalInputEventDeduplicator _inputEventDeduplicator =
+      TerminalInputEventDeduplicator();
 
   @override
   void initState() {
@@ -43,23 +47,50 @@ class _TerminalWebViewState extends State<TerminalWebView> {
       final message = WebViewBridgeMessage.decode(rawMessage);
 
       if (message.type == 'terminal.ready') {
+        final streamId = message.payload['streamId'];
+        if (streamId is! String ||
+            !_inputEventDeduplicator.beginStream(streamId)) {
+          debugPrint('[CodeRoam Terminal] Invalid ready event ignored.');
+          return;
+        }
+
         if (_controller.markReady()) {
           widget.onReady?.call();
+        }
+      } else if (message.type == 'terminal.input') {
+        final eventId = message.id;
+        final streamId = message.payload['streamId'];
+        if (eventId == null ||
+            streamId is! String ||
+            !_inputEventDeduplicator.accept(
+              streamId: streamId,
+              eventId: eventId,
+            )) {
+          if (kDebugMode) {
+            debugPrint(
+              '[CodeRoam Terminal] Invalid, duplicate, or stale input ignored.',
+            );
+          }
+          return;
         }
       } else if (message.type == 'terminal.resized') {
         final columns = message.payload['columns'];
         final rows = message.payload['rows'];
-        debugPrint(
-          '[CodeRoam Terminal] resized: '
-          'columns=${columns is int ? columns : 'invalid'}, '
-          'rows=${rows is int ? rows : 'invalid'}',
-        );
+        if (kDebugMode) {
+          debugPrint(
+            '[CodeRoam Terminal] resized: '
+            'columns=${columns is int ? columns : 'invalid'}, '
+            'rows=${rows is int ? rows : 'invalid'}',
+          );
+        }
       } else if (message.type == 'terminal.focusChanged') {
         final focused = message.payload['focused'];
-        debugPrint(
-          '[CodeRoam Terminal] focus changed: '
-          '${focused is bool ? focused : 'invalid'}',
-        );
+        if (kDebugMode) {
+          debugPrint(
+            '[CodeRoam Terminal] focus changed: '
+            '${focused is bool ? focused : 'invalid'}',
+          );
+        }
       } else if (message.type == 'terminal.error') {
         debugPrint('[CodeRoam Terminal] bridge error event received.');
       }
@@ -70,6 +101,11 @@ class _TerminalWebViewState extends State<TerminalWebView> {
     }
   }
 
+  void _handlePageStarted() {
+    _inputEventDeduplicator.reset();
+    _controller.markNotReady();
+  }
+
   @override
   Widget build(BuildContext context) {
     return EmbeddedWebView(
@@ -78,7 +114,7 @@ class _TerminalWebViewState extends State<TerminalWebView> {
       backgroundColor: const Color(0xFF0D0F12),
       onControllerCreated: _controller.attach,
       onMessage: _handleMessage,
-      onPageStarted: _controller.markNotReady,
+      onPageStarted: _handlePageStarted,
     );
   }
 }

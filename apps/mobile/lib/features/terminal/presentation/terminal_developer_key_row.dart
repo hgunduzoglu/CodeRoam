@@ -4,9 +4,16 @@ import 'package:coderoam/features/terminal/presentation/terminal_input_spike_con
 import 'package:flutter/material.dart';
 
 class TerminalDeveloperKeyRow extends StatelessWidget {
-  const TerminalDeveloperKeyRow({required this.controller, super.key});
+  const TerminalDeveloperKeyRow({
+    required this.controller,
+    required this.isFullScreen,
+    required this.onToggleFullScreen,
+    super.key,
+  });
 
   final TerminalInputSpikeController controller;
+  final bool isFullScreen;
+  final VoidCallback onToggleFullScreen;
 
   @override
   Widget build(BuildContext context) {
@@ -28,6 +35,17 @@ class TerminalDeveloperKeyRow extends StatelessWidget {
                   ),
                   child: Row(
                     children: [
+                      _IconKey(
+                        icon:
+                            isFullScreen
+                                ? Icons.fullscreen_exit
+                                : Icons.fullscreen,
+                        tooltip:
+                            isFullScreen
+                                ? 'Exit full-screen terminal'
+                                : 'Enter full-screen terminal',
+                        onPressed: onToggleFullScreen,
+                      ),
                       _TextKey(
                         label: 'Esc',
                         onPressed:
@@ -59,6 +77,11 @@ class TerminalDeveloperKeyRow extends StatelessWidget {
                             onSelected: (_) => controller.toggleCtrl(),
                           ),
                         ),
+                      ),
+                      _TextKey(
+                        label: 'Burst',
+                        onPressed:
+                            () => unawaited(controller.runFastOutputHarness()),
                       ),
                       _IconKey(
                         icon: Icons.arrow_left,

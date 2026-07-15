@@ -46,4 +46,22 @@ void main() {
 
     expect(output, ['[Tab]', '[↑]', '^D']);
   });
+
+  test('fast output harness streams a bounded number of batches', () async {
+    final output = <String>[];
+    final controller = TerminalInputSpikeController(
+      writeOutput: (data) async => output.add(data),
+    );
+    addTearDown(controller.dispose);
+
+    await controller.runFastOutputHarness();
+
+    expect(
+      output,
+      hasLength(terminalFastOutputLineCount ~/ terminalFastOutputBatchSize),
+    );
+    expect(output.first, startsWith('burst 0001'));
+    expect(output.last, contains('burst 0600'));
+    expect(output.join(), isNot(contains('burst 0601')));
+  });
 }

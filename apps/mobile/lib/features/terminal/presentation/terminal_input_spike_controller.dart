@@ -5,6 +5,9 @@ import 'package:flutter/foundation.dart';
 
 typedef TerminalOutputWriter = Future<void> Function(String data);
 
+const terminalFastOutputLineCount = 600;
+const terminalFastOutputBatchSize = 30;
+
 enum TerminalDeveloperKey { escape, tab, left, up, down, right }
 
 enum TerminalInputSource { xterm, physicalKeyboard, developerKey }
@@ -34,6 +37,32 @@ class TerminalInputSpikeController extends ChangeNotifier {
       '\r\nCodeRoam local terminal-input spike (no PTY).\r\n\r\n\$ ',
       operation: 'start local echo harness',
     );
+  }
+
+  Future<void> runFastOutputHarness() async {
+    for (
+      var firstLine = 1;
+      firstLine <= terminalFastOutputLineCount;
+      firstLine += terminalFastOutputBatchSize
+    ) {
+      final lastLine = (firstLine + terminalFastOutputBatchSize - 1).clamp(
+        1,
+        terminalFastOutputLineCount,
+      );
+      final output = StringBuffer();
+
+      for (var line = firstLine; line <= lastLine; line += 1) {
+        output.writeln(
+          'burst ${line.toString().padLeft(4, '0')} '
+          'CodeRoam bounded terminal output',
+        );
+      }
+
+      await _writeSafely(
+        output.toString().replaceAll('\n', '\r\n'),
+        operation: 'run fast output harness',
+      );
+    }
   }
 
   Future<void> handleXtermInput(String data) {
@@ -81,10 +110,12 @@ class TerminalInputSpikeController extends ChangeNotifier {
       notifyListeners();
     }
 
-    debugPrint(
-      '[CodeRoam Terminal] input source=${source.name}, '
-      'bytes=${utf8.encode(terminalInput).length}',
-    );
+    if (kDebugMode) {
+      debugPrint(
+        '[CodeRoam Terminal] input source=${source.name}, '
+        'bytes=${utf8.encode(terminalInput).length}',
+      );
+    }
 
     final output = _harness.outputFor(terminalInput);
     if (output.isEmpty) {
