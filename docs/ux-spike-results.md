@@ -1,6 +1,6 @@
 # Touch UX Spike Results
 
-Status: **physical-device validation not run**
+Status: **physical-device validation in progress**
 
 Fill this document during Milestone 0.
 
@@ -17,14 +17,16 @@ and does not replace the physical-device checks below.
 
 | Device | OS | Editor | Terminal | Keyboard | Pointer | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| iPhone | TBD | TBD | TBD | software | n/a | |
+| iPhone | iOS (version TBD) | Retest pending | Not tested | software | n/a | Completion suggestions had unreadable unselected text; theme fix implemented. |
 | iPad | TBD | TBD | TBD | software + hardware | yes | |
 | Android phone | TBD | TBD | TBD | software | n/a | |
 | Android tablet | TBD | TBD | TBD | software + hardware | yes | |
 
 ## Blocking findings
 
-None recorded yet.
+- **iPhone completion contrast:** Unselected CodeMirror completion entries rendered light text on a
+  light tooltip background. The editor now declares a dark CodeMirror theme and gives completion
+  entries explicit high-contrast colors. Physical-device retest is pending.
 
 ## Decision
 

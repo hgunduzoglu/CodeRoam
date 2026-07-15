@@ -93,52 +93,74 @@ const state = EditorState.create({
       }
     }),
 
-    EditorView.theme({
-      "&": {
-        height: "100%",
-        fontSize: "16px",
-        backgroundColor: "#111318",
-      },
+    EditorView.theme(
+      {
+        "&": {
+          height: "100%",
+          fontSize: "16px",
+          backgroundColor: "#111318",
+        },
 
-      ".cm-scroller": {
-        fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-        overscrollBehavior: "contain",
-        touchAction: "pan-y",
-      },
+        ".cm-scroller": {
+          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+          overscrollBehavior: "contain",
+          touchAction: "pan-y",
+        },
 
-      ".cm-content": {
-        padding: "16px 8px 40vh",
-        caretColor: "#ffffff",
-      },
+        ".cm-content": {
+          padding: "16px 8px 40vh",
+          caretColor: "#ffffff",
+        },
 
-      ".cm-gutters": {
-        minWidth: "44px",
-        backgroundColor: "#111318",
-        color: "#667085",
-        border: "none",
-      },
+        ".cm-gutters": {
+          minWidth: "44px",
+          backgroundColor: "#111318",
+          color: "#667085",
+          border: "none",
+        },
 
-      ".cm-lineNumbers .cm-gutterElement": {
-        padding: "0 10px 0 6px",
-      },
+        ".cm-lineNumbers .cm-gutterElement": {
+          padding: "0 10px 0 6px",
+        },
 
-      ".cm-activeLine": {
-        backgroundColor: "#1a202b",
-      },
+        ".cm-activeLine": {
+          backgroundColor: "#1a202b",
+        },
 
-      ".cm-activeLineGutter": {
-        backgroundColor: "#202735",
-        color: "#d0d5dd",
-      },
+        ".cm-activeLineGutter": {
+          backgroundColor: "#202735",
+          color: "#d0d5dd",
+        },
 
-      ".cm-selectionBackground": {
-        backgroundColor: "#344054 !important",
-      },
+        ".cm-selectionBackground": {
+          backgroundColor: "#344054 !important",
+        },
 
-      ".cm-tooltip": {
-        maxWidth: "min(90vw, 520px)",
+        ".cm-tooltip": {
+          maxWidth: "min(90vw, 520px)",
+        },
+
+        ".cm-tooltip.cm-tooltip-autocomplete": {
+          backgroundColor: "#202735",
+          color: "#f2f4f7",
+          border: "1px solid #475467",
+        },
+
+        ".cm-tooltip-autocomplete > ul > li": {
+          color: "#f2f4f7",
+        },
+
+        ".cm-tooltip-autocomplete > ul > li[aria-selected]": {
+          backgroundColor: "#175cd3",
+          color: "#ffffff",
+        },
+
+        ".cm-completionDetail": {
+          color: "#d0d5dd",
+        },
       },
-    }),
+      { dark: true },
+    ),
   ],
 });
 
