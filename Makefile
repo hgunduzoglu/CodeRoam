@@ -87,6 +87,7 @@ test-web:
 	@if [ -d node_modules ]; then npm run test:web; else echo "skip web tests: run npm install"; fi
 
 test-infrastructure:
+	./scripts/test-smoke-infrastructure.sh
 	./scripts/smoke-infrastructure.sh
 
 build: build-go build-web
