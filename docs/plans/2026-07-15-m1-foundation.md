@@ -49,7 +49,8 @@ smoke checks will validate service readiness and migrations without adding M2 do
 
 - [x] Inspect the existing M1 foundation and identify gaps.
 - [x] Add cryptography boundary contracts and tests.
-- [ ] Add infrastructure readiness and migration smoke coverage.
+- [x] Add infrastructure readiness and migration smoke coverage. PostgreSQL/Redis health-gated
+  startup, repeated migrations, service health, worker lifecycle, and cleanup are validated.
 - [ ] Add Protobuf regeneration checks.
 - [ ] Expand CI coverage.
 - [ ] Run the complete applicable quality gate.
@@ -71,6 +72,11 @@ smoke checks will validate service readiness and migrations without adding M2 do
   creation. Normal startup must fail closed instead of regenerating identity after missing or
   unreadable storage, because replacement would break peer pinning. The opaque key's zero value
   cannot be encoded as usable material; callers must obtain initialized keys through parsing.
+- 2026-07-15: Make public-key values deliberately non-comparable and provide fail-closed equality.
+  This prevents two uninitialized zero values from accidentally satisfying a peer-pinning check.
+- 2026-07-15: Gate local service startup on PostgreSQL and Redis health. Application containers
+  remain distroless; their HTTP readiness will be checked externally by the integration smoke
+  runner instead of adding shell tooling to production images.
 
 ## Validation
 
@@ -83,12 +89,14 @@ make fmt
 make lint
 make test
 make build
-docker compose -f deployments/compose/docker-compose.yml up --build --wait
-make migrate
-docker compose -f deployments/compose/docker-compose.yml down
+make test-infrastructure
 ```
 
 Generated-code cleanliness and a repeated migration run will also be checked explicitly.
+
+2026-07-16 infrastructure-slice validation passed: ShellCheck and Bash syntax, Compose config,
+health-gated startup, two migration runs, control-plane and relay health, worker lifecycle, cleanup,
+`make fmt`, `make lint`, `make test`, and `make build`.
 
 ## Recovery and rollback
 

@@ -15,7 +15,8 @@ GO_MODULES := \
 	protocol/gen/go
 
 .PHONY: help bootstrap bootstrap-mobile proto fmt fmt-go lint lint-go test test-go \
-	test-flutter test-web build build-go build-web up down migrate agent-skills-check
+	test-flutter test-web test-infrastructure build build-go build-web up down migrate \
+	agent-skills-check
 
 help:
 	@echo "bootstrap          Verify required local tools"
@@ -25,6 +26,7 @@ help:
 	@echo "lint               Run all configured linters"
 	@echo "test               Run all configured test suites"
 	@echo "test-go            Run every Go module test suite"
+	@echo "test-infrastructure Smoke-test Compose readiness and migrations"
 	@echo "build              Build Go binaries, web bundles, and container images"
 	@echo "up                 Start PostgreSQL, Redis, control-plane, worker, and relay"
 	@echo "down               Stop local services"
@@ -83,6 +85,9 @@ test-flutter:
 
 test-web:
 	@if [ -d node_modules ]; then npm run test:web; else echo "skip web tests: run npm install"; fi
+
+test-infrastructure:
+	./scripts/smoke-infrastructure.sh
 
 build: build-go build-web
 	docker build -f deployments/docker/control-plane.Dockerfile .

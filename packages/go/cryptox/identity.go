@@ -13,8 +13,9 @@ var ErrInvalidPublicKey = errors.New("cryptox: invalid X25519 public key")
 
 // X25519PublicKey is the public, non-secret portion of a static identity.
 type X25519PublicKey struct {
-	encoded     [x25519PublicKeySize]byte
-	initialized bool
+	encoded      [x25519PublicKeySize]byte
+	initialized  bool
+	doNotCompare [0]func()
 }
 
 // ParseX25519PublicKey validates and copies untrusted encoded public-key bytes.
@@ -43,6 +44,11 @@ func (k X25519PublicKey) Bytes() ([]byte, error) {
 	encoded := make([]byte, x25519PublicKeySize)
 	copy(encoded, k.encoded[:])
 	return encoded, nil
+}
+
+// Equal reports whether two initialized public keys have identical encodings.
+func (k X25519PublicKey) Equal(other X25519PublicKey) bool {
+	return k.initialized && other.initialized && k.encoded == other.encoded
 }
 
 // StaticIdentity is an opaque private identity owned by an audited crypto adapter.

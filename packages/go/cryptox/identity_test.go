@@ -3,6 +3,7 @@ package cryptox
 import (
 	"bytes"
 	"errors"
+	"reflect"
 	"strconv"
 	"testing"
 )
@@ -41,5 +42,34 @@ func TestParseX25519PublicKeyRejectsInvalidLengths(t *testing.T) {
 				t.Fatalf("ParseX25519PublicKey() error = %v, want %v", err, ErrInvalidPublicKey)
 			}
 		})
+	}
+}
+
+func TestX25519PublicKeyEqualFailsClosed(t *testing.T) {
+	first, err := ParseX25519PublicKey(bytes.Repeat([]byte{0x42}, x25519PublicKeySize))
+	if err != nil {
+		t.Fatalf("ParseX25519PublicKey(first) error = %v", err)
+	}
+	firstCopy, err := ParseX25519PublicKey(bytes.Repeat([]byte{0x42}, x25519PublicKeySize))
+	if err != nil {
+		t.Fatalf("ParseX25519PublicKey(first copy) error = %v", err)
+	}
+	second, err := ParseX25519PublicKey(bytes.Repeat([]byte{0x43}, x25519PublicKeySize))
+	if err != nil {
+		t.Fatalf("ParseX25519PublicKey(second) error = %v", err)
+	}
+	var zero X25519PublicKey
+
+	if !first.Equal(firstCopy) {
+		t.Fatal("Equal() = false for identical initialized keys")
+	}
+	if first.Equal(second) {
+		t.Fatal("Equal() = true for different initialized keys")
+	}
+	if zero.Equal(zero) || zero.Equal(first) || first.Equal(zero) {
+		t.Fatal("Equal() = true for a comparison containing an uninitialized key")
+	}
+	if reflect.TypeOf(zero).Comparable() {
+		t.Fatal("X25519PublicKey remains comparable with ==")
 	}
 }
