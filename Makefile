@@ -14,14 +14,15 @@ GO_MODULES := \
 	packages/go/testx \
 	protocol/gen/go
 
-.PHONY: help bootstrap bootstrap-mobile proto fmt fmt-go lint lint-go test test-go \
-	test-flutter test-web test-infrastructure build build-go build-web up down migrate \
-	agent-skills-check
+.PHONY: help bootstrap bootstrap-mobile proto proto-check fmt fmt-go lint lint-go test test-go \
+	test-flutter test-web test-protocol test-infrastructure build build-go build-web up down \
+	migrate agent-skills-check
 
 help:
 	@echo "bootstrap          Verify required local tools"
 	@echo "bootstrap-mobile   Generate local Flutter iOS/Android project files"
 	@echo "proto              Lint and generate Go/Dart protocol code"
+	@echo "proto-check        Check compatibility and generated protocol code"
 	@echo "fmt                Format Go, Dart, JS, YAML, and Markdown"
 	@echo "lint               Run all configured linters"
 	@echo "test               Run all configured test suites"
@@ -47,6 +48,10 @@ proto:
 	buf generate
 	cd protocol/gen/go && go mod tidy
 	cd protocol/gen/dart && dart pub get
+
+proto-check:
+	./scripts/check-protocol.sh
+
 fmt: fmt-go
 	@if command -v dart >/dev/null; then cd apps/mobile && dart format .; else echo "skip dart format: dart missing"; fi
 	@if [ -d node_modules ]; then npm run format:web; else echo "skip web format: run npm install"; fi
@@ -68,7 +73,7 @@ lint-go:
 		(cd "$$module" && go vet ./...); \
 	done
 
-test: test-go test-flutter test-web
+test: test-go test-flutter test-web test-protocol
 
 test-go:
 	@for module in $(GO_MODULES); do \
@@ -85,6 +90,9 @@ test-flutter:
 
 test-web:
 	@if [ -d node_modules ]; then npm run test:web; else echo "skip web tests: run npm install"; fi
+
+test-protocol:
+	./scripts/test-check-protocol.sh
 
 test-infrastructure:
 	./scripts/test-smoke-infrastructure.sh

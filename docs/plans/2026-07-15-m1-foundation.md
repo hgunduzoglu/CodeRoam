@@ -51,7 +51,8 @@ smoke checks will validate service readiness and migrations without adding M2 do
 - [x] Add cryptography boundary contracts and tests.
 - [x] Add infrastructure readiness and migration smoke coverage. PostgreSQL/Redis health-gated
   startup, repeated migrations, service health, worker lifecycle, and cleanup are validated.
-- [ ] Add Protobuf regeneration checks.
+- [x] Add Protobuf regeneration checks. The repository-owned check lints schemas, compares them
+  with `main`, regenerates Go and Dart code, and rejects generated drift.
 - [ ] Expand CI coverage.
 - [ ] Run the complete applicable quality gate.
 - [ ] Record the M1 decision and remaining manual checks.
@@ -77,6 +78,9 @@ smoke checks will validate service readiness and migrations without adding M2 do
 - 2026-07-15: Gate local service startup on PostgreSQL and Redis health. Application containers
   remain distroless; their HTTP readiness will be checked externally by the integration smoke
   runner instead of adding shell tooling to production images.
+- 2026-07-16: Use `.git#branch=main` as the default Buf compatibility baseline, with an environment
+  override for CI or unusual local Git layouts. Keep compatibility and generated-drift checks in a
+  repository-owned command so local and hosted validation use the same behavior.
 
 ## Validation
 
@@ -98,6 +102,10 @@ Generated-code cleanliness and a repeated migration run will also be checked exp
 health-gated startup, two migration runs, control-plane and relay health, worker lifecycle, cleanup,
 `make fmt`, `make lint`, `make test`, and `make build`.
 
+2026-07-16 protocol-slice validation passed: Buf lint and compatibility against `main`, clean Go
+and Dart regeneration, ShellCheck and Bash syntax, the protocol-check regression test, all Go
+consumer tests, Flutter analysis, and all Flutter tests.
+
 ## Recovery and rollback
 
 Each slice remains a focused diff. If a slice fails validation, revert only that slice's files and
@@ -108,7 +116,5 @@ volumes are preserved unless a migration test explicitly uses an isolated dispos
 
 - CI duration may require separating fast pull-request checks from the container smoke job.
 - Flutter platform folders are locally generated and may require a CI-specific bootstrap path.
-- Buf compatibility needs an explicit baseline strategy that works for both pull requests and the
-  initial repository history.
 - Docker may be unavailable in some local environments; CI must remain the authoritative
   infrastructure smoke environment when that occurs.
