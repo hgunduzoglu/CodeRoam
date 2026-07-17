@@ -49,6 +49,9 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 
   POSTGRES_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' ./scripts/migrate.sh
   POSTGRES_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' ./scripts/migrate.sh
+  (cd packages/go/postgresx && \
+    POSTGRES_TEST_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' \
+      go test -count=1 -run '^TestApplyMigrationsIntegration$' ./...)
 
   assert_http_health http://localhost:8080/healthz coderoam-control-plane
   assert_http_health http://localhost:8090/healthz coderoam-relay

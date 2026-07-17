@@ -66,8 +66,10 @@ authorization source or durable store.
 
 - [x] Inspect the existing M2 schemas, deployables, and trust boundaries.
 - [x] Add the auth user domain contract and tests.
-- [ ] Approve and add the PostgreSQL runtime dependency.
-- [ ] Add migration/repository integration coverage.
+- [x] Approve and add the PostgreSQL runtime dependency.
+- [x] Add the migration ledger primitive and PostgreSQL integration harness.
+- [ ] Route the starter migrations through the ledger.
+- [ ] Add auth repository integration coverage.
 - [ ] Implement auth and authenticated actor behavior.
 - [ ] Implement devices and revocation outbox behavior.
 - [ ] Implement agents, environments, and projects.
@@ -88,6 +90,12 @@ authorization source or durable store.
 - 2026-07-17: Keep user identifiers opaque outside the auth module and parse their canonical
   encoding at the boundary. Preserve verified email local-part case while normalizing only the
   domain; provider-specific identity association must not be inferred from generic email casing.
+- 2026-07-17: Pin `github.com/jackc/pgx/v5` at `v5.10.0`. Keep the reusable migration mechanism in
+  the domain-neutral `postgresx` package and its deployment-owned ledger in `coderoam_meta`, outside
+  every application module's writable schema.
+- 2026-07-17: Apply each migration and its ledger record in one transaction, serialize runners with
+  a PostgreSQL advisory transaction lock, and reject checksum or name drift for an applied
+  scope/version.
 
 ## Validation
 
@@ -111,6 +119,12 @@ Security-sensitive slices receive an adversarial review before commit.
 constructible user identifiers and unsafe whole-email lowercasing were fixed and re-reviewed with no
 remaining findings.
 
+2026-07-17 migration-ledger primitive validation passed: unit/race tests, `go vet`, dependency
+verification, `govulncheck`, ShellCheck, the smoke-script regression test, and real PostgreSQL 17
+integration coverage for ordering, repeat application, checksum drift, transactional rollback, and
+recovery. The full Compose infrastructure gate and applicable repository formatting, lint, test,
+and build gates also passed.
+
 ## Recovery and rollback
 
 Code slices remain independent commits on the M2 branch. Forward migrations must be compatible
@@ -122,9 +136,9 @@ deletes or rewrites durable user data automatically.
 
 - The authentication bootstrap/provider is not specified and requires an explicit product decision
   before a production login endpoint can be completed.
-- PostgreSQL access requires a runtime driver dependency; repository policy requires approval before
-  it is added.
-- Existing starter migrations use `IF NOT EXISTS` without a migration ledger, so future schema
-  evolution needs a versioned, failure-aware migration path before table changes proceed.
+- The existing starter migration script still applies `IF NOT EXISTS` files directly. It must be
+  routed through the new ledger before any schema evolution is added.
+- Control-plane runtime pool configuration and lifecycle are not wired yet; that belongs with the
+  first auth repository slice.
 - Session signing and relay ticket cryptography belong to M3/M4; M2 must not ship a placeholder
   token that could be mistaken for a secure production ticket.

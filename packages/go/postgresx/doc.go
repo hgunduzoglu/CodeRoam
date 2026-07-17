@@ -1,2 +1,2 @@
-// Package postgresx contains PostgreSQL transaction and migration helpers.
+// Package postgresx contains domain-neutral PostgreSQL transaction and migration primitives.
 package postgresx
