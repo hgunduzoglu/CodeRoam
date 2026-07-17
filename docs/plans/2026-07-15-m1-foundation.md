@@ -12,17 +12,24 @@ This plan covers foundation behavior only. It does not implement control-plane b
 agent pairing, Noise handshakes, relay routing, or workspace operations assigned to later
 milestones.
 
+## Outcome
+
+Milestone 1 acceptance passed on 2026-07-17. The repository now has reproducible local and hosted
+checks, buildable foundation deployables and Flutter/WebView surfaces, health-tested development
+infrastructure, deterministic Protobuf generation, and the reviewed cryptography boundary required
+for later pairing and Noise milestones.
+
 ## Current state
 
 - Milestone 0 is complete and merged.
 - The monorepo already contains the Flutter app, both WebViews, four Go deployables, database
   migrations, Dockerfiles, a Compose stack, Protobuf schemas, and generated Go/Dart contracts.
-- CI currently validates Go and agent-guidance synchronization, but not Flutter, WebViews,
-  Protobuf regeneration, or the local infrastructure smoke path.
+- CI validates Go, Flutter, both WebViews, Protobuf compatibility/regeneration, infrastructure
+  readiness/migrations, and agent-guidance synchronization in independent bounded jobs.
 - `packages/go/cryptox` now validates X25519 public-key encodings and exposes opaque static
   identity/provider contracts without exposing private-key bytes.
-- Compose defines PostgreSQL, Redis, control-plane, worker, and relay, but readiness and migration
-  behavior are not exercised by an automated smoke test.
+- Compose defines PostgreSQL, Redis, control-plane, worker, and relay with health-gated startup;
+  automated smoke coverage verifies readiness, repeated migrations, service health, and cleanup.
 
 ## Design
 
@@ -50,13 +57,13 @@ smoke checks will validate service readiness and migrations without adding M2 do
 - [x] Inspect the existing M1 foundation and identify gaps.
 - [x] Add cryptography boundary contracts and tests.
 - [x] Add infrastructure readiness and migration smoke coverage. PostgreSQL/Redis health-gated
-  startup, repeated migrations, service health, worker lifecycle, and cleanup are validated.
+      startup, repeated migrations, service health, worker lifecycle, and cleanup are validated.
 - [x] Add Protobuf regeneration checks. The repository-owned check lints schemas, compares them
-  with `main`, regenerates Go and Dart code, and rejects generated drift.
+      with `main`, regenerates Go and Dart code, and rejects generated drift.
 - [x] Expand CI coverage. Independent bounded jobs now validate Go, Flutter, both WebViews,
-  Protobuf compatibility/regeneration, infrastructure readiness/migrations, and agent guidance.
-- [ ] Run the complete applicable quality gate.
-- [ ] Record the M1 decision and remaining manual checks.
+      Protobuf compatibility/regeneration, infrastructure readiness/migrations, and agent guidance.
+- [x] Run the complete applicable quality gate.
+- [x] Record the M1 decision and remaining manual checks.
 
 ## Decisions
 
@@ -85,6 +92,10 @@ smoke checks will validate service readiness and migrations without adding M2 do
 - 2026-07-17: Give each CI concern its own timeout-bounded job and call repository-owned check
   targets. Pin Node 24, Flutter 3.41.5, Dart 3.11.3, and Buf 1.47.2; use the maintained Buf action in
   setup-only mode so validation policy remains in `make proto-check` and CI does not publish schemas.
+- 2026-07-17: Accept Milestone 1 after the complete local gate, a clean detached-worktree bootstrap
+  and build, generated/format cleanliness, infrastructure cleanup, and all hosted CI jobs passed.
+  Pairing, concrete identity storage, Noise handshakes, and encrypted frame state remain assigned
+  to M3/M4 rather than being pulled into the foundation.
 
 ## Validation
 
@@ -112,8 +123,15 @@ consumer tests, Flutter analysis, and all Flutter tests.
 
 2026-07-17 CI-slice local validation passed: actionlint 1.7.12, WebView formatting/lint/tests/build,
 Flutter lockfile/format/analyze/tests and Android debug build, protocol regression/compatibility/
-regeneration, and the complete isolated infrastructure smoke test. The hosted GitHub Actions run
-remains unverified until this slice is committed and pushed.
+regeneration, and the complete isolated infrastructure smoke test. All hosted GitHub Actions jobs
+subsequently passed.
+
+2026-07-17 final M1 validation passed: `make bootstrap`, `make proto`, `make fmt`, `make lint`,
+`make test`, `make build`, and `make test-infrastructure`. Regeneration and formatting left the
+tracked tree clean. A detached worktree with no inherited dependencies or build products also
+passed bootstrap, `npm ci` (zero reported vulnerabilities), protocol generation, WebView checks,
+Flutter checks and Android debug build, all Go/WebView/container builds, and a final clean status.
+The disposable Compose project left no containers or named volume behind.
 
 ## Recovery and rollback
 
@@ -123,5 +141,6 @@ volumes are preserved unless a migration test explicitly uses an isolated dispos
 
 ## Open risks
 
-- Actual hosted CI duration and runner behavior remain unverified until the expanded workflow runs
-  on GitHub. Jobs are isolated and bounded to make failures and later optimization explicit.
+- The Android debug build succeeds but its dependency toolchain emits deprecation warnings for
+  Java 8 source/target compatibility. This is non-blocking for M1 and should be revisited during a
+  deliberate Flutter/Android dependency upgrade rather than mixed into foundation acceptance.
