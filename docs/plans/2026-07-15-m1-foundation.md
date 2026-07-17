@@ -53,7 +53,8 @@ smoke checks will validate service readiness and migrations without adding M2 do
   startup, repeated migrations, service health, worker lifecycle, and cleanup are validated.
 - [x] Add Protobuf regeneration checks. The repository-owned check lints schemas, compares them
   with `main`, regenerates Go and Dart code, and rejects generated drift.
-- [ ] Expand CI coverage.
+- [x] Expand CI coverage. Independent bounded jobs now validate Go, Flutter, both WebViews,
+  Protobuf compatibility/regeneration, infrastructure readiness/migrations, and agent guidance.
 - [ ] Run the complete applicable quality gate.
 - [ ] Record the M1 decision and remaining manual checks.
 
@@ -81,6 +82,9 @@ smoke checks will validate service readiness and migrations without adding M2 do
 - 2026-07-16: Use `.git#branch=main` as the default Buf compatibility baseline, with an environment
   override for CI or unusual local Git layouts. Keep compatibility and generated-drift checks in a
   repository-owned command so local and hosted validation use the same behavior.
+- 2026-07-17: Give each CI concern its own timeout-bounded job and call repository-owned check
+  targets. Pin Node 24, Flutter 3.41.5, Dart 3.11.3, and Buf 1.47.2; use the maintained Buf action in
+  setup-only mode so validation policy remains in `make proto-check` and CI does not publish schemas.
 
 ## Validation
 
@@ -106,6 +110,11 @@ health-gated startup, two migration runs, control-plane and relay health, worker
 and Dart regeneration, ShellCheck and Bash syntax, the protocol-check regression test, all Go
 consumer tests, Flutter analysis, and all Flutter tests.
 
+2026-07-17 CI-slice local validation passed: actionlint 1.7.12, WebView formatting/lint/tests/build,
+Flutter lockfile/format/analyze/tests and Android debug build, protocol regression/compatibility/
+regeneration, and the complete isolated infrastructure smoke test. The hosted GitHub Actions run
+remains unverified until this slice is committed and pushed.
+
 ## Recovery and rollback
 
 Each slice remains a focused diff. If a slice fails validation, revert only that slice's files and
@@ -114,7 +123,5 @@ volumes are preserved unless a migration test explicitly uses an isolated dispos
 
 ## Open risks
 
-- CI duration may require separating fast pull-request checks from the container smoke job.
-- Flutter platform folders are locally generated and may require a CI-specific bootstrap path.
-- Docker may be unavailable in some local environments; CI must remain the authoritative
-  infrastructure smoke environment when that occurs.
+- Actual hosted CI duration and runner behavior remain unverified until the expanded workflow runs
+  on GitHub. Jobs are isolated and bounded to make failures and later optimization explicit.

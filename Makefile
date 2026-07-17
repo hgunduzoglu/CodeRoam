@@ -15,8 +15,8 @@ GO_MODULES := \
 	protocol/gen/go
 
 .PHONY: help bootstrap bootstrap-mobile proto proto-check fmt fmt-go lint lint-go test test-go \
-	test-flutter test-web test-protocol test-infrastructure build build-go build-web up down \
-	migrate agent-skills-check
+	test-flutter test-web test-protocol test-infrastructure check-flutter check-web build build-go \
+	build-flutter build-web up down migrate agent-skills-check
 
 help:
 	@echo "bootstrap          Verify required local tools"
@@ -28,6 +28,8 @@ help:
 	@echo "test               Run all configured test suites"
 	@echo "test-go            Run every Go module test suite"
 	@echo "test-infrastructure Smoke-test Compose readiness and migrations"
+	@echo "check-flutter       Check, test, and build the Flutter app"
+	@echo "check-web           Check, test, and build both WebViews"
 	@echo "build              Build Go binaries, web bundles, and container images"
 	@echo "up                 Start PostgreSQL, Redis, control-plane, worker, and relay"
 	@echo "down               Stop local services"
@@ -98,6 +100,23 @@ test-infrastructure:
 	./scripts/test-smoke-infrastructure.sh
 	./scripts/smoke-infrastructure.sh
 
+check-flutter:
+	@command -v flutter >/dev/null || (echo "flutter is required"; exit 1)
+	cd apps/mobile && flutter pub get
+	git diff --exit-code -- apps/mobile/pubspec.lock
+	cd apps/mobile && dart format --output=none --set-exit-if-changed .
+	cd apps/mobile && flutter analyze
+	cd apps/mobile && flutter test
+	$(MAKE) build-flutter
+
+check-web:
+	@command -v npm >/dev/null || (echo "npm is required"; exit 1)
+	npm run format:web
+	git diff --exit-code -- webview
+	npm run lint:web
+	npm run test:web
+	$(MAKE) build-web
+
 build: build-go build-web
 	docker build -f deployments/docker/control-plane.Dockerfile .
 	docker build -f deployments/docker/worker.Dockerfile .
@@ -115,6 +134,9 @@ build-go:
 		echo "==> build $$1"; \
 		(cd "$$1" && go build -o "$(CURDIR)/$$3" "$$2"); \
 	done
+
+build-flutter:
+	cd apps/mobile && flutter build apk --debug
 
 build-web:
 	@if [ -d node_modules ]; then npm run build:web; else echo "skip web build: run npm install"; fi
