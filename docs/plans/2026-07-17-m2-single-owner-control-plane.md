@@ -27,7 +27,8 @@ integration. Those remain assigned to later milestones.
 - The auth application service accepts bounded opaque evidence only through an injected verifier,
   re-resolves the verified user in PostgreSQL, and issues an opaque actor on exact identity match.
 - The device module now validates mobile identity metadata and X25519 public keys, binds new devices
-  to an authenticated actor, and denies authorization after owner-only irreversible revocation.
+  to an authenticated actor, denies authorization after owner-only irreversible revocation, and can
+  atomically persist revocation with a metadata-only outbox event.
 - The outbox module now exposes closed metadata-only event kinds and can enqueue a fixed empty JSON
   event only inside a caller-owned PostgreSQL transaction.
 - The control-plane runtime opens and verifies a bounded PostgreSQL pool before serving, drains HTTP
@@ -83,7 +84,8 @@ authorization source or durable store.
 - [ ] Wire an approved authentication adapter and REST/OpenAPI behavior.
 - [x] Add the device identity and revocation domain contract.
 - [x] Add the metadata-only transactional outbox enqueue primitive.
-- [ ] Implement device persistence and atomic revocation outbox behavior.
+- [x] Implement persisted device revocation with atomic outbox behavior.
+- [ ] Implement device registration/listing persistence after the fingerprint contract is fixed.
 - [ ] Implement agents, environments, and projects.
 - [ ] Implement session authorization and ticket metadata.
 - [ ] Implement worker outbox processing.
@@ -142,6 +144,14 @@ authorization source or durable store.
   aggregate IDs, stores only a fixed empty JSON object, and returns a typed duplicate-ID error. This
   slice changes no schema and requires no backfill or compatibility rollout; rollback removes both
   the caller's state change and event.
+- 2026-07-18: Persist device revocation by locking the active row with both device and authenticated
+  owner IDs, deriving the timestamp from an injected server clock, and committing `revoked_at` plus
+  one `device.revoked.v1` event in a nested caller-owned PostgreSQL transaction. Missing, foreign,
+  and malformed-owner rows use the same access-denied result. Repeated revocation commits no change
+  and emits no second event. Repository work has a fixed maximum deadline while preserving earlier
+  caller deadlines. Pre-commit failures roll back atomically; commit errors have unknown outcome and
+  require the same idempotent retry. This slice changes no schema; registration remains deferred
+  rather than inventing the M3 public-key fingerprint encoding.
 
 ## Validation
 
@@ -216,6 +226,16 @@ and cleanup deletes only a successfully committed random test ID. Adversarial re
 medium issues in the initial draft: free-form metadata could carry secret-shaped values, and cleanup
 could delete a pre-existing fixed-ID row after a failed commit. Closed event kinds, internally
 generated typed IDs, and post-commit cleanup resolved both; re-review found no remaining issues.
+
+2026-07-18 persisted-device-revocation slice validation passed: 18 focused device cases and 65
+control-plane tests under the race detector, focused and module `go vet`, module verification,
+vulnerability scanning, ShellCheck, Bash syntax validation, PostgreSQL 17 integration, and the full
+repository format/lint/test/build gates. Integration coverage proves owner-only row locking,
+single-event commit, repeat idempotency, foreign/missing/corrupt-owner denial, future-pairing
+failure, outbox-failure rollback and recovery, and exact transaction-scoped cleanup. Adversarial
+review found an unbounded owner-row lock wait and an inaccurate claim that commit errors always roll
+back. A fixed repository operation deadline, held-lock timeout/retry regression, and documentation
+of outcome-ambiguous commits resolved both; re-review found no remaining issues.
 
 ## Recovery and rollback
 
