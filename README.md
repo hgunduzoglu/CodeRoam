@@ -77,7 +77,8 @@ make bootstrap
 make test-go
 ```
 
-Flutter platform folders are intentionally generated locally:
+Flutter platform projects are checked in. Regenerate them only when intentionally updating the
+Flutter/native project scaffolding:
 
 ```bash
 ./scripts/bootstrap-mobile.sh

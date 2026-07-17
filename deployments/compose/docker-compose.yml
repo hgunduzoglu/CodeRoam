@@ -9,11 +9,23 @@ services:
       - "5432:5432"
     volumes:
       - coderoam-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+      start_period: 5s
 
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+      start_period: 2s
 
   control-plane:
     build:
@@ -26,8 +38,10 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   worker:
     build:
@@ -37,8 +51,10 @@ services:
       POSTGRES_DSN: postgres://postgres:postgres@postgres:5432/coderoam?sslmode=disable
       REDIS_ADDR: redis:6379
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   relay:
     build:
@@ -51,7 +67,8 @@ services:
     ports:
       - "8090:8090"
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
 
 volumes:
   coderoam-postgres:
