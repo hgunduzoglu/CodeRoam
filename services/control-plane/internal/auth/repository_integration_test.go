@@ -65,6 +65,18 @@ func TestRepositoryIntegration(t *testing.T) {
 	if stored.id != user.id || stored.email != user.email || stored.displayName != user.displayName || !stored.createdAt.Equal(user.createdAt) {
 		t.Fatal("FindByID() did not round-trip the stored user")
 	}
+	service, err := NewService(repository, &identityVerifierStub{userID: user.id})
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	actor, err := service.Authenticate(ctx, "integration-evidence")
+	if err != nil {
+		t.Fatalf("Authenticate() error = %v", err)
+	}
+	actorUserID, ok := actor.UserID()
+	if !ok || actorUserID != user.id {
+		t.Fatal("Authenticate() did not resolve the persisted user")
+	}
 
 	duplicateID, err := NewUser(user.id.String(), "other@example.com", "Other", createdAt)
 	if err != nil {

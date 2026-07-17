@@ -20,10 +20,12 @@ integration. Those remain assigned to later milestones.
 ## Current state
 
 - M0 and M1 are complete and merged.
-- The control plane currently exposes only `/healthz`; no authentication application service or
-  transport is wired at runtime.
+- The control plane currently exposes only `/healthz`; no authentication provider or transport is
+  wired at runtime.
 - Starter SQL runs through the transactional migration ledger, and the auth module now owns a
   PostgreSQL repository for validated users with typed duplicate and not-found failures.
+- The auth application service accepts bounded opaque evidence only through an injected verifier,
+  re-resolves the verified user in PostgreSQL, and issues an opaque actor on exact identity match.
 - The control-plane runtime opens and verifies a bounded PostgreSQL pool before serving, drains HTTP
   requests during shutdown, and closes the pool after the server stops.
 - The worker emits a heartbeat but does not claim or process outbox events.
@@ -73,7 +75,8 @@ authorization source or durable store.
 - [x] Add the migration ledger primitive and PostgreSQL integration harness.
 - [x] Route the starter migrations through the ledger.
 - [x] Add auth repository integration coverage.
-- [ ] Implement auth and authenticated actor behavior.
+- [x] Add the auth application service and fail-closed actor boundary.
+- [ ] Wire an approved authentication adapter and REST/OpenAPI behavior.
 - [ ] Implement devices and revocation outbox behavior.
 - [ ] Implement agents, environments, and projects.
 - [ ] Implement session authorization and ticket metadata.
@@ -111,6 +114,10 @@ authorization source or durable store.
 - 2026-07-17: Let the control-plane process own one bounded PostgreSQL pool. Startup requires a
   successful ping under a deadline; shutdown drains the HTTP server before closing the pool; DSNs
   and user records are never logged.
+- 2026-07-17: Keep provider verification behind an `IdentityVerifier` supplied by the composition
+  root. The application service validates bounded evidence, maps rejected/zero/missing/mismatched
+  identities to one unauthenticated result, sanitizes dependency failures, and issues an actor only
+  after the verified ID exactly matches a repository user. A zero actor yields no usable user ID.
 
 ## Validation
 
@@ -158,6 +165,14 @@ ShellCheck, repository formatting/lint/test/build, and the full Compose infrastr
 PostgreSQL 17 coverage exercises round trips, typed uniqueness conflicts, missing users, corrupt
 rows, and transaction rollback without persistent test writes. Adversarial review found no remaining
 security or database-lifecycle issues and verified clean SIGTERM shutdown.
+
+2026-07-17 auth-service slice validation passed: 40 auth tests and 41 control-plane tests under the
+race detector, focused and module `go vet`, module verification, `govulncheck`, repository
+formatting/lint/tests, and the full Compose infrastructure gate. Negative coverage rejects malformed
+or oversized evidence, verifier rejection, zero and missing identities, repository mismatches,
+unsanitized dependency failures, nil context, and zero actors. A medium-severity review finding that
+wrapped cancellation errors could leak dependency details was fixed by returning canonical context
+sentinels; adversarial re-review found no remaining issues.
 
 ## Recovery and rollback
 
