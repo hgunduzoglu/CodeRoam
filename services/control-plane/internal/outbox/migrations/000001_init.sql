@@ -1,5 +1,5 @@
-CREATE SCHEMA IF NOT EXISTS outbox;
-CREATE TABLE IF NOT EXISTS outbox.events (
+CREATE SCHEMA outbox;
+CREATE TABLE outbox.events (
   id text PRIMARY KEY,
   event_type text NOT NULL,
   aggregate_type text NOT NULL,
@@ -11,6 +11,6 @@ CREATE TABLE IF NOT EXISTS outbox.events (
   last_error text,
   created_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS outbox_pending_idx
+CREATE INDEX outbox_pending_idx
   ON outbox.events(available_at)
   WHERE processed_at IS NULL;

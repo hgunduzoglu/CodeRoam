@@ -3,6 +3,11 @@ set -euo pipefail
 
 source ./scripts/smoke-infrastructure.sh
 
+if git grep -n 'IF NOT EXISTS' -- ':(glob)services/control-plane/internal/*/migrations/*.sql'; then
+  echo "starter migrations must fail closed on pre-ledger database objects" >&2
+  exit 1
+fi
+
 expected_compose=(docker compose --project-name coderoam-m1-smoke -f deployments/compose/docker-compose.yml)
 if [[ "${compose[*]}" != "${expected_compose[*]}" ]]; then
   echo "smoke test does not use the isolated Compose project" >&2

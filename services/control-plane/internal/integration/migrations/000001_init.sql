@@ -1,5 +1,5 @@
-CREATE SCHEMA IF NOT EXISTS integration;
-CREATE TABLE IF NOT EXISTS integration.github_installations (
+CREATE SCHEMA integration;
+CREATE TABLE integration.github_installations (
   id text PRIMARY KEY,
   user_id text NOT NULL,
   installation_id bigint NOT NULL UNIQUE,

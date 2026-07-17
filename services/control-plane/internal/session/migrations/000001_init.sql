@@ -1,5 +1,5 @@
-CREATE SCHEMA IF NOT EXISTS session;
-CREATE TABLE IF NOT EXISTS session.pairing_attempts (
+CREATE SCHEMA session;
+CREATE TABLE session.pairing_attempts (
   id text PRIMARY KEY,
   agent_fingerprint text NOT NULL,
   expires_at timestamptz NOT NULL,
@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS session.pairing_attempts (
   consumed_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE TABLE IF NOT EXISTS session.sessions (
+CREATE TABLE session.sessions (
   id text PRIMARY KEY,
   user_id text NOT NULL,
   device_id text NOT NULL,

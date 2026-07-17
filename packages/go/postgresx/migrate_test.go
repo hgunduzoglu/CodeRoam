@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type failingTransactionStarter struct {
@@ -72,9 +73,10 @@ func TestApplyMigrationsIntegration(t *testing.T) {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cleanupCancel()
 		_, _ = conn.Exec(cleanupCtx, `DROP SCHEMA IF EXISTS postgresx_test CASCADE`)
+		_, _ = conn.Exec(cleanupCtx, `DROP SCHEMA IF EXISTS postgresx_unledgered_test CASCADE`)
 		_, _ = conn.Exec(cleanupCtx, `
 			DELETE FROM coderoam_meta.schema_migrations
-			WHERE scope IN ('postgresx_test_apply', 'postgresx_test_recovery')`)
+			WHERE scope IN ('postgresx_test_apply', 'postgresx_test_recovery', 'postgresx_test_unledgered')`)
 	})
 
 	migrations := []Migration{
@@ -150,5 +152,46 @@ func TestApplyMigrationsIntegration(t *testing.T) {
 	}
 	if recoveryLedgerCount != 1 {
 		t.Fatalf("recovery ledger count = %d, want 1", recoveryLedgerCount)
+	}
+
+	if _, err := conn.Exec(ctx, `DROP SCHEMA IF EXISTS postgresx_unledgered_test CASCADE`); err != nil {
+		t.Fatalf("reset unledgered integration schema: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `DELETE FROM coderoam_meta.schema_migrations WHERE scope = 'postgresx_test_unledgered'`); err != nil {
+		t.Fatalf("reset unledgered migration rows: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `CREATE SCHEMA postgresx_unledgered_test`); err != nil {
+		t.Fatalf("create unledgered integration schema: %v", err)
+	}
+	unledgered := Migration{
+		Scope:   "postgresx_test_unledgered",
+		Version: 1,
+		Name:    "init",
+		SQL: `
+			CREATE SCHEMA postgresx_unledgered_test;
+			CREATE TABLE postgresx_unledgered_test.items (value text);`,
+	}
+	err = ApplyMigrations(ctx, conn, []Migration{unledgered})
+	var databaseErr *pgconn.PgError
+	if !errors.As(err, &databaseErr) || databaseErr.Code != "42P06" {
+		t.Fatalf("unledgered ApplyMigrations() error = %v, want duplicate_schema", err)
+	}
+
+	var unledgeredTable *string
+	if err := conn.QueryRow(ctx, `SELECT to_regclass('postgresx_unledgered_test.items')::text`).Scan(&unledgeredTable); err != nil {
+		t.Fatalf("inspect rejected unledgered migration: %v", err)
+	}
+	if unledgeredTable != nil {
+		t.Fatalf("rejected unledgered migration left table %q behind", *unledgeredTable)
+	}
+
+	var unledgeredLedgerCount int
+	if err := conn.QueryRow(ctx, `
+		SELECT count(*) FROM coderoam_meta.schema_migrations
+		WHERE scope = $1`, unledgered.Scope).Scan(&unledgeredLedgerCount); err != nil {
+		t.Fatalf("count unledgered migration rows: %v", err)
+	}
+	if unledgeredLedgerCount != 0 {
+		t.Fatalf("unledgered migration ledger count = %d, want 0", unledgeredLedgerCount)
 	}
 }

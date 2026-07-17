@@ -99,6 +99,9 @@ authorization source or durable store.
 - 2026-07-17: Keep the repository migration catalog as an explicit allow-list of module scopes and
   directories. Run it through the bounded Go migration command so local `psql` is not required and
   the database DSN remains in the environment rather than process arguments.
+- 2026-07-17: Starter DDL is intentionally strict and contains no `IF NOT EXISTS`. The ledger is the
+  only repeat-application mechanism; an empty ledger plus a pre-existing module object fails closed
+  instead of silently adopting an unverifiable M1 schema.
 
 ## Validation
 
@@ -134,6 +137,12 @@ eight module scope/version ledger entries, runner integration coverage, and the 
 infrastructure gate. Repository formatting, lint, test, command build, deployable build, and
 container build gates also passed.
 
+2026-07-17 strict-baseline validation passed: a static guard covers every module migration, focused
+unit/race tests and `go vet` passed, and PostgreSQL 17 integration proved that a pre-existing
+unledgered schema returns `duplicate_schema`, creates no new table, and records no ledger entry.
+Fresh and repeated repository migration runs, the full Compose infrastructure gate, and repository
+formatting, lint, and test gates still pass.
+
 ## Recovery and rollback
 
 Code slices remain independent commits on the M2 branch. Forward migrations must be compatible
@@ -141,13 +150,16 @@ with the previously deployed binary or include an explicit staged rollout. Faile
 tests use the isolated Compose project and remove disposable volumes. Runtime rollback never
 deletes or rewrites durable user data automatically.
 
+Any local database that ran the earlier pre-merge idempotent starter SQL or its ledger checksums
+must be recreated before continuing. For the disposable M1 Compose database, stop the stack and
+remove its volume with `docker compose -f deployments/compose/docker-compose.yml down --volumes`,
+then rerun the migrations. This reset is only valid before durable M2 application data exists; it is
+not a production rollback procedure.
+
 ## Open risks
 
 - The authentication bootstrap/provider is not specified and requires an explicit product decision
   before a production login endpoint can be completed.
-- The first ledger run can baseline schemas created by the tracked idempotent M1 SQL, but it cannot
-  prove that a manually altered pre-ledger table still has the expected shape. A drifted local M1
-  database must be inspected or recreated before further migrations are applied.
 - Control-plane runtime pool configuration and lifecycle are not wired yet; that belongs with the
   first auth repository slice.
 - Session signing and relay ticket cryptography belong to M3/M4; M2 must not ship a placeholder

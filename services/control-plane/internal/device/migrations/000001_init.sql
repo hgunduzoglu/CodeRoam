@@ -1,5 +1,5 @@
-CREATE SCHEMA IF NOT EXISTS device;
-CREATE TABLE IF NOT EXISTS device.devices (
+CREATE SCHEMA device;
+CREATE TABLE device.devices (
   id text PRIMARY KEY,
   user_id text NOT NULL,
   name text NOT NULL,
@@ -10,4 +10,4 @@ CREATE TABLE IF NOT EXISTS device.devices (
   last_seen_at timestamptz,
   revoked_at timestamptz
 );
-CREATE INDEX IF NOT EXISTS devices_user_idx ON device.devices(user_id);
+CREATE INDEX devices_user_idx ON device.devices(user_id);

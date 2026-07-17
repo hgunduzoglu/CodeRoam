@@ -1,5 +1,5 @@
-CREATE SCHEMA IF NOT EXISTS auth;
-CREATE TABLE IF NOT EXISTS auth.users (
+CREATE SCHEMA auth;
+CREATE TABLE auth.users (
   id text PRIMARY KEY,
   email text NOT NULL UNIQUE,
   display_name text NOT NULL,

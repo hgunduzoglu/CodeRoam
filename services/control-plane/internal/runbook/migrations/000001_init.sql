@@ -1,5 +1,5 @@
-CREATE SCHEMA IF NOT EXISTS runbook;
-CREATE TABLE IF NOT EXISTS runbook.definitions (
+CREATE SCHEMA runbook;
+CREATE TABLE runbook.definitions (
   id text PRIMARY KEY,
   user_id text NOT NULL,
   environment_id text NOT NULL,
@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS runbook.definitions (
   enabled boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE TABLE IF NOT EXISTS runbook.executions (
+CREATE TABLE runbook.executions (
   id text PRIMARY KEY,
   user_id text NOT NULL,
   device_id text NOT NULL,
