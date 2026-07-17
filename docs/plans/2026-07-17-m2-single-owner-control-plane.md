@@ -21,8 +21,8 @@ integration. Those remain assigned to later milestones.
 
 - M0 and M1 are complete and merged.
 - The control plane currently exposes only `/healthz`; no application modules are wired at runtime.
-- Starter SQL creates the module-owned schemas and tables, but there are no repositories,
-  transaction boundaries, migration ledger, or database integration tests.
+- Starter SQL now runs through the transactional migration ledger with PostgreSQL integration
+  coverage, but there are no application repositories or runtime transaction boundaries yet.
 - The worker emits a heartbeat but does not claim or process outbox events.
 - Authentication-provider/bootstrap behavior is not specified, so no provider-specific login flow
   will be invented inside an ownership slice.
@@ -68,7 +68,7 @@ authorization source or durable store.
 - [x] Add the auth user domain contract and tests.
 - [x] Approve and add the PostgreSQL runtime dependency.
 - [x] Add the migration ledger primitive and PostgreSQL integration harness.
-- [ ] Route the starter migrations through the ledger.
+- [x] Route the starter migrations through the ledger.
 - [ ] Add auth repository integration coverage.
 - [ ] Implement auth and authenticated actor behavior.
 - [ ] Implement devices and revocation outbox behavior.
@@ -96,6 +96,9 @@ authorization source or durable store.
 - 2026-07-17: Apply each migration and its ledger record in one transaction, serialize runners with
   a PostgreSQL advisory transaction lock, and reject checksum or name drift for an applied
   scope/version.
+- 2026-07-17: Keep the repository migration catalog as an explicit allow-list of module scopes and
+  directories. Run it through the bounded Go migration command so local `psql` is not required and
+  the database DSN remains in the environment rather than process arguments.
 
 ## Validation
 
@@ -125,6 +128,12 @@ integration coverage for ordering, repeat application, checksum drift, transacti
 recovery. The full Compose infrastructure gate and applicable repository formatting, lint, test,
 and build gates also passed.
 
+2026-07-17 starter-migration activation validation passed: loader and runner unit/race tests,
+focused `go vet`, ShellCheck, repeat execution against PostgreSQL 17, exact verification of all
+eight module scope/version ledger entries, runner integration coverage, and the full Compose
+infrastructure gate. Repository formatting, lint, test, command build, deployable build, and
+container build gates also passed.
+
 ## Recovery and rollback
 
 Code slices remain independent commits on the M2 branch. Forward migrations must be compatible
@@ -136,8 +145,9 @@ deletes or rewrites durable user data automatically.
 
 - The authentication bootstrap/provider is not specified and requires an explicit product decision
   before a production login endpoint can be completed.
-- The existing starter migration script still applies `IF NOT EXISTS` files directly. It must be
-  routed through the new ledger before any schema evolution is added.
+- The first ledger run can baseline schemas created by the tracked idempotent M1 SQL, but it cannot
+  prove that a manually altered pre-ledger table still has the expected shape. A drifted local M1
+  database must be inspected or recreated before further migrations are applied.
 - Control-plane runtime pool configuration and lifecycle are not wired yet; that belongs with the
   first auth repository slice.
 - Session signing and relay ticket cryptography belong to M3/M4; M2 must not ship a placeholder

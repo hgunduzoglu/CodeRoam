@@ -49,9 +49,16 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 
   POSTGRES_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' ./scripts/migrate.sh
   POSTGRES_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' ./scripts/migrate.sh
+  applied_migrations="$("${compose[@]}" exec -T postgres psql -U postgres -d coderoam -Atc \
+    "SELECT string_agg(scope || ':' || version, ',' ORDER BY scope) FROM coderoam_meta.schema_migrations")"
+  expected_migrations='auth:1,device:1,integration:1,outbox:1,preview:1,runbook:1,session:1,workspace:1'
+  if [[ "$applied_migrations" != "$expected_migrations" ]]; then
+    echo "unexpected migration ledger: $applied_migrations" >&2
+    exit 1
+  fi
   (cd packages/go/postgresx && \
     POSTGRES_TEST_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' \
-      go test -count=1 -run '^TestApplyMigrationsIntegration$' ./...)
+      go test -count=1 -run 'Integration$' ./...)
 
   assert_http_health http://localhost:8080/healthz coderoam-control-plane
   assert_http_health http://localhost:8090/healthz coderoam-relay

@@ -2,13 +2,18 @@
 set -euo pipefail
 
 : "${POSTGRES_DSN:=postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable}"
+export POSTGRES_DSN
 
-if ! command -v psql >/dev/null 2>&1; then
-  echo "psql is required to apply the starter migrations." >&2
-  exit 1
-fi
+# Schema scopes are explicit so a new module cannot join the writable migration set accidentally.
+migration_scopes=(
+  'auth=services/control-plane/internal/auth/migrations'
+  'device=services/control-plane/internal/device/migrations'
+  'integration=services/control-plane/internal/integration/migrations'
+  'outbox=services/control-plane/internal/outbox/migrations'
+  'preview=services/control-plane/internal/preview/migrations'
+  'runbook=services/control-plane/internal/runbook/migrations'
+  'session=services/control-plane/internal/session/migrations'
+  'workspace=services/control-plane/internal/workspace/migrations'
+)
 
-while IFS= read -r migration; do
-  echo "Applying $migration"
-  psql "$POSTGRES_DSN" -v ON_ERROR_STOP=1 -f "$migration"
-done < <(find services/control-plane/internal -path '*/migrations/*.sql' -type f | sort)
+go run ./packages/go/postgresx/cmd/migrate "${migration_scopes[@]}"
