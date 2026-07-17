@@ -28,6 +28,8 @@ integration. Those remain assigned to later milestones.
   re-resolves the verified user in PostgreSQL, and issues an opaque actor on exact identity match.
 - The device module now validates mobile identity metadata and X25519 public keys, binds new devices
   to an authenticated actor, and denies authorization after owner-only irreversible revocation.
+- The outbox module now exposes closed metadata-only event kinds and can enqueue a fixed empty JSON
+  event only inside a caller-owned PostgreSQL transaction.
 - The control-plane runtime opens and verifies a bounded PostgreSQL pool before serving, drains HTTP
   requests during shutdown, and closes the pool after the server stops.
 - The worker emits a heartbeat but does not claim or process outbox events.
@@ -80,6 +82,7 @@ authorization source or durable store.
 - [x] Add the auth application service and fail-closed actor boundary.
 - [ ] Wire an approved authentication adapter and REST/OpenAPI behavior.
 - [x] Add the device identity and revocation domain contract.
+- [x] Add the metadata-only transactional outbox enqueue primitive.
 - [ ] Implement device persistence and atomic revocation outbox behavior.
 - [ ] Implement agents, environments, and projects.
 - [ ] Implement session authorization and ticket metadata.
@@ -133,6 +136,12 @@ authorization source or durable store.
 - 2026-07-17: Reuse the existing domain-neutral `cryptox` public-key type in the control plane. Defer
   fingerprint encoding to the persistence/pairing contract so this M2 slice does not invent M3 wire
   semantics.
+- 2026-07-18: Keep all `outbox.events` insert SQL inside the outbox module and require callers to pass
+  an existing `pgx.Tx`; a pool cannot satisfy the enqueue API. The initial event contract accepts
+  only closed `EventKind` values, generates cryptographically random event IDs, requires typed
+  aggregate IDs, stores only a fixed empty JSON object, and returns a typed duplicate-ID error. This
+  slice changes no schema and requires no backfill or compatibility rollout; rollback removes both
+  the caller's state change and event.
 
 ## Validation
 
@@ -197,6 +206,16 @@ uninitialized public keys, zero pairing times, foreign revocation, invalid revoc
 devices, and authorization by foreign or revoked actors. A medium-severity review finding that a
 copied device could retain active state was fixed with shared synchronized revocation state plus
 retained-copy and concurrent regression tests; adversarial re-review found no remaining issues.
+
+2026-07-18 outbox-enqueue slice validation passed: six outbox unit cases and two opaque-ID tests
+under the race detector, focused `go vet`, module verification, vulnerability scanning, ShellCheck,
+Bash syntax validation, PostgreSQL 17 integration, and the full repository format/lint/test/build
+gates. Coverage proves that rollback leaves no event, commit preserves exactly one metadata-only
+`{}` event, duplicate IDs return the typed conflict, invalid or canceled boundaries do not enqueue,
+and cleanup deletes only a successfully committed random test ID. Adversarial review found two
+medium issues in the initial draft: free-form metadata could carry secret-shaped values, and cleanup
+could delete a pre-existing fixed-ID row after a failed commit. Closed event kinds, internally
+generated typed IDs, and post-commit cleanup resolved both; re-review found no remaining issues.
 
 ## Recovery and rollback
 
