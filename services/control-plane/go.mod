@@ -3,6 +3,7 @@ module github.com/hgunduzoglu/coderoam/services/control-plane
 go 1.26.0
 
 require (
+	github.com/hgunduzoglu/coderoam/packages/go/cryptox v0.0.0
 	github.com/hgunduzoglu/coderoam/packages/go/postgresx v0.0.0
 	github.com/jackc/pgx/v5 v5.10.0
 )
@@ -14,5 +15,7 @@ require (
 	golang.org/x/sync v0.17.0 // indirect
 	golang.org/x/text v0.29.0 // indirect
 )
+
+replace github.com/hgunduzoglu/coderoam/packages/go/cryptox => ../../packages/go/cryptox
 
 replace github.com/hgunduzoglu/coderoam/packages/go/postgresx => ../../packages/go/postgresx

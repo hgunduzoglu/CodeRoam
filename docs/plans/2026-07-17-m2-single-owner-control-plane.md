@@ -26,6 +26,8 @@ integration. Those remain assigned to later milestones.
   PostgreSQL repository for validated users with typed duplicate and not-found failures.
 - The auth application service accepts bounded opaque evidence only through an injected verifier,
   re-resolves the verified user in PostgreSQL, and issues an opaque actor on exact identity match.
+- The device module now validates mobile identity metadata and X25519 public keys, binds new devices
+  to an authenticated actor, and denies authorization after owner-only irreversible revocation.
 - The control-plane runtime opens and verifies a bounded PostgreSQL pool before serving, drains HTTP
   requests during shutdown, and closes the pool after the server stops.
 - The worker emits a heartbeat but does not claim or process outbox events.
@@ -77,7 +79,8 @@ authorization source or durable store.
 - [x] Add auth repository integration coverage.
 - [x] Add the auth application service and fail-closed actor boundary.
 - [ ] Wire an approved authentication adapter and REST/OpenAPI behavior.
-- [ ] Implement devices and revocation outbox behavior.
+- [x] Add the device identity and revocation domain contract.
+- [ ] Implement device persistence and atomic revocation outbox behavior.
 - [ ] Implement agents, environments, and projects.
 - [ ] Implement session authorization and ticket metadata.
 - [ ] Implement worker outbox processing.
@@ -118,6 +121,18 @@ authorization source or durable store.
   root. The application service validates bounded evidence, maps rejected/zero/missing/mismatched
   identities to one unauthenticated result, sanitizes dependency failures, and issues an actor only
   after the verified ID exactly matches a repository user. A zero actor yields no usable user ID.
+- 2026-07-17: Require an authenticated actor to register or revoke a device. Accept only canonical
+  opaque IDs, bounded names, explicit iOS/iPadOS/Android platforms, initialized X25519 public keys,
+  and nonzero server-owned pairing times. Active-device authorization requires the exact owning
+  actor; revocation checks ownership first, preserves its first timestamp, and has no reactivation
+  path.
+- 2026-07-17: Device value copies share a private synchronized revocation state so a retained handle
+  cannot authorize after another copy revokes it. The persistence slice must still make every trust
+  decision from committed repository state; process-local handles are not a durable authorization
+  source.
+- 2026-07-17: Reuse the existing domain-neutral `cryptox` public-key type in the control plane. Defer
+  fingerprint encoding to the persistence/pairing contract so this M2 slice does not invent M3 wire
+  semantics.
 
 ## Validation
 
@@ -174,6 +189,15 @@ unsanitized dependency failures, nil context, and zero actors. A medium-severity
 wrapped cancellation errors could leak dependency details was fixed by returning canonical context
 sentinels; adversarial re-review found no remaining issues.
 
+2026-07-17 device-domain slice validation passed: 16 device tests and 57 control-plane tests under
+the race detector, focused and module `go vet`, module verification, `govulncheck`, repository
+formatting/lint/tests/build, the control-plane container build, and the full Compose infrastructure
+gate. Negative coverage rejects zero actors, malformed or oversized metadata, unsupported platforms,
+uninitialized public keys, zero pairing times, foreign revocation, invalid revocation times, zero
+devices, and authorization by foreign or revoked actors. A medium-severity review finding that a
+copied device could retain active state was fixed with shared synchronized revocation state plus
+retained-copy and concurrent regression tests; adversarial re-review found no remaining issues.
+
 ## Recovery and rollback
 
 Code slices remain independent commits on the M2 branch. Forward migrations must be compatible
@@ -191,5 +215,7 @@ not a production rollback procedure.
 
 - The authentication bootstrap/provider is not specified and requires an explicit product decision
   before a production login endpoint can be completed.
+- Public-key fingerprint encoding must be fixed with the M3 pairing contract before device
+  persistence is exposed to clients.
 - Session signing and relay ticket cryptography belong to M3/M4; M2 must not ship a placeholder
   token that could be mistaken for a secure production ticket.
