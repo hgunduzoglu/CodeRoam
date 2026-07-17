@@ -1,11 +1,23 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
+
+	"github.com/hgunduzoglu/coderoam/packages/go/postgresx"
+)
+
+const (
+	databaseStartupTimeout = 10 * time.Second
+	serverShutdownTimeout  = 10 * time.Second
 )
 
 type healthResponse struct {
@@ -15,6 +27,23 @@ type healthResponse struct {
 }
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx); err != nil {
+		log.Printf("CodeRoam control plane stopped: %v", err)
+		os.Exit(1)
+	}
+}
+
+func run(ctx context.Context) error {
+	startupCtx, cancelStartup := context.WithTimeout(ctx, databaseStartupTimeout)
+	pool, err := postgresx.OpenPool(startupCtx, os.Getenv("POSTGRES_DSN"))
+	cancelStartup()
+	if err != nil {
+		return fmt.Errorf("start control-plane database: %w", err)
+	}
+	defer pool.Close()
+
 	addr := getenv("CONTROL_PLANE_HTTP_ADDR", ":8080")
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -29,9 +58,40 @@ func main() {
 		Addr:              addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 	log.Printf("CodeRoam control plane listening on %s", addr)
-	log.Fatal(server.ListenAndServe())
+	serverErrors := make(chan error, 1)
+	go func() {
+		serverErrors <- server.ListenAndServe()
+	}()
+
+	select {
+	case err := <-serverErrors:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return fmt.Errorf("serve control-plane HTTP: %w", err)
+	case <-ctx.Done():
+		shutdownCtx, cancelShutdown := context.WithTimeout(context.WithoutCancel(ctx), serverShutdownTimeout)
+		defer cancelShutdown()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			closeErr := server.Close()
+			return errors.Join(fmt.Errorf("shutdown control-plane HTTP: %w", err), closeErr)
+		}
+		select {
+		case err := <-serverErrors:
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				return fmt.Errorf("stop control-plane HTTP: %w", err)
+			}
+			return nil
+		case <-shutdownCtx.Done():
+			closeErr := server.Close()
+			return errors.Join(fmt.Errorf("wait for control-plane HTTP shutdown: %w", shutdownCtx.Err()), closeErr)
+		}
+	}
 }
 
 func getenv(key, fallback string) string {

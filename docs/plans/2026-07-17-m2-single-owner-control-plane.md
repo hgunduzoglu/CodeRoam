@@ -20,9 +20,12 @@ integration. Those remain assigned to later milestones.
 ## Current state
 
 - M0 and M1 are complete and merged.
-- The control plane currently exposes only `/healthz`; no application modules are wired at runtime.
-- Starter SQL now runs through the transactional migration ledger with PostgreSQL integration
-  coverage, but there are no application repositories or runtime transaction boundaries yet.
+- The control plane currently exposes only `/healthz`; no authentication application service or
+  transport is wired at runtime.
+- Starter SQL runs through the transactional migration ledger, and the auth module now owns a
+  PostgreSQL repository for validated users with typed duplicate and not-found failures.
+- The control-plane runtime opens and verifies a bounded PostgreSQL pool before serving, drains HTTP
+  requests during shutdown, and closes the pool after the server stops.
 - The worker emits a heartbeat but does not claim or process outbox events.
 - Authentication-provider/bootstrap behavior is not specified, so no provider-specific login flow
   will be invented inside an ownership slice.
@@ -69,7 +72,7 @@ authorization source or durable store.
 - [x] Approve and add the PostgreSQL runtime dependency.
 - [x] Add the migration ledger primitive and PostgreSQL integration harness.
 - [x] Route the starter migrations through the ledger.
-- [ ] Add auth repository integration coverage.
+- [x] Add auth repository integration coverage.
 - [ ] Implement auth and authenticated actor behavior.
 - [ ] Implement devices and revocation outbox behavior.
 - [ ] Implement agents, environments, and projects.
@@ -102,6 +105,12 @@ authorization source or durable store.
 - 2026-07-17: Starter DDL is intentionally strict and contains no `IF NOT EXISTS`. The ledger is the
   only repeat-application mechanism; an empty ledger plus a pre-existing module object fails closed
   instead of silently adopting an unverifiable M1 schema.
+- 2026-07-17: Keep auth persistence behind the auth module's repository. Bind every SQL value,
+  translate known ID/email uniqueness conflicts into typed errors, and revalidate stored rows
+  through the domain constructor so malformed or noncanonical identity data fails closed.
+- 2026-07-17: Let the control-plane process own one bounded PostgreSQL pool. Startup requires a
+  successful ping under a deadline; shutdown drains the HTTP server before closing the pool; DSNs
+  and user records are never logged.
 
 ## Validation
 
@@ -143,6 +152,13 @@ unledgered schema returns `duplicate_schema`, creates no new table, and records 
 Fresh and repeated repository migration runs, the full Compose infrastructure gate, and repository
 formatting, lint, and test gates still pass.
 
+2026-07-17 auth-repository and runtime-pool slice validation passed: 16 control-plane and 22
+`postgresx` tests under the race detector, focused `go vet`, module verification, `govulncheck`,
+ShellCheck, repository formatting/lint/test/build, and the full Compose infrastructure gate.
+PostgreSQL 17 coverage exercises round trips, typed uniqueness conflicts, missing users, corrupt
+rows, and transaction rollback without persistent test writes. Adversarial review found no remaining
+security or database-lifecycle issues and verified clean SIGTERM shutdown.
+
 ## Recovery and rollback
 
 Code slices remain independent commits on the M2 branch. Forward migrations must be compatible
@@ -160,7 +176,5 @@ not a production rollback procedure.
 
 - The authentication bootstrap/provider is not specified and requires an explicit product decision
   before a production login endpoint can be completed.
-- Control-plane runtime pool configuration and lifecycle are not wired yet; that belongs with the
-  first auth repository slice.
 - Session signing and relay ticket cryptography belong to M3/M4; M2 must not ship a placeholder
   token that could be mistaken for a secure production ticket.

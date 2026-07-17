@@ -59,6 +59,9 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   (cd packages/go/postgresx && \
     POSTGRES_TEST_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' \
       go test -count=1 -run 'Integration$' ./...)
+  (cd services/control-plane && \
+    POSTGRES_TEST_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' \
+      go test -count=1 -run '^TestRepositoryIntegration$' ./internal/auth)
 
   assert_http_health http://localhost:8080/healthz coderoam-control-plane
   assert_http_health http://localhost:8090/healthz coderoam-relay
