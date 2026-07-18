@@ -89,6 +89,7 @@ authorization source or durable store.
 - [x] Add the persisted active-device authorization boundary.
 - [ ] Implement device registration/listing persistence after the fingerprint contract is fixed.
 - [ ] Implement agents, environments, and projects.
+- [x] Add the workspace agent identity and revocation domain boundary.
 - [ ] Implement session authorization and ticket metadata.
 - [ ] Implement worker outbox processing.
 - [ ] Integrate the Flutter M2 surface.
@@ -162,6 +163,12 @@ authorization source or durable store.
   missing, foreign, revoked, future-paired, and corrupt rows share one access-denied result. The
   method performs no mutation or outbox write and ignores fingerprint data until M3 defines its
   encoding and proof semantics.
+- 2026-07-18: Establish the workspace-owned agent domain before persistence or pairing. Bind a
+  canonical opaque agent ID, bounded name and software version, and initialized X25519 public key to
+  an authenticated owner. Keep authorization fail-closed for zero/foreign actors and share private
+  synchronized revocation state across value copies. Revocation is owner-only, irreversible, and
+  idempotent, with server-owned creation/revocation times. Defer fingerprint encoding, bootstrap,
+  pairing proof, key pinning, persistence, and relay/session behavior to their owning slices.
 
 ## Validation
 
@@ -256,6 +263,15 @@ lock-wait recovery, and `FOR SHARE` authorization versus `FOR UPDATE` revocation
 Adversarial review found no actionable issue. The future session slice must still authorize and
 persist ticket metadata in the exact same bounded transaction, with guaranteed rollback on every
 exit, before session issuance can be considered race-safe.
+
+2026-07-18 workspace-agent-domain slice validation passed: 19 focused workspace cases and 85
+control-plane tests under the race detector, focused and module `go vet`, module verification,
+vulnerability scanning, and the full repository format/lint/test/build gates. Negative coverage
+rejects zero/foreign actors, malformed IDs, empty/invalid/control-character/oversized names and
+versions, uninitialized keys, and invalid timestamps. Copy and concurrency coverage proves that
+revocation is owner-only, irreversible, idempotent, and visible to every retained value. Adversarial
+review found no actionable issue and confirmed that fingerprint, pairing proof, key pinning,
+persistence, and relay/session trust remain explicitly deferred.
 
 ## Recovery and rollback
 
