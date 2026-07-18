@@ -8,13 +8,14 @@ only that owner while active. Revocation is owner-only, irreversible, idempotent
 retained value copies so an old handle cannot authorize after revocation.
 
 Creation and revocation times are server-owned inputs; transport-provided timestamps or user IDs
-must not reach the constructor as authority. Persisted authorization must later re-read committed
-workspace state and reject future-created or revoked agents rather than trusting an in-memory
-handle.
+must not reach the constructor as authority. Persisted agent authorization re-reads committed
+workspace state inside the caller's existing bounded PostgreSQL transaction, rejects future-created
+or revoked agents, and holds a shared row lock until that caller commits or rolls back.
 
-This domain boundary does not define fingerprint encoding, signed-agent bootstrap, pairing proof,
-key pinning, persistence, last-seen updates, or relay/session behavior. Those require their owning
-M2 persistence and M3/M4 security slices.
+The persistence boundary ignores fingerprint and last-seen metadata until their M3 contracts are
+defined; it does not treat a size-valid public key as pairing proof. It does not begin, commit, or
+roll back the caller's transaction. Future session issuance must authorize the persisted device,
+agent, and project and write ticket metadata inside that exact transaction.
 
 The environment domain binds a canonical opaque environment ID and bounded display/provider
 metadata to an authenticated owner and an active agent already owned by that actor. The provider

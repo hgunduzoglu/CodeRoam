@@ -30,6 +30,8 @@ integration. Those remain assigned to later milestones.
   to an authenticated actor, authorizes only an active owner-scoped persisted row, denies
   authorization after irreversible revocation, and can atomically persist revocation with a
   metadata-only outbox event.
+- The workspace module now authorizes an active owner-scoped persisted agent inside a caller-owned
+  bounded transaction and holds a shared row lock through that caller's commit or rollback.
 - The outbox module now exposes closed metadata-only event kinds and can enqueue a fixed empty JSON
   event only inside a caller-owned PostgreSQL transaction.
 - The control-plane runtime opens and verifies a bounded PostgreSQL pool before serving, drains HTTP
@@ -90,6 +92,7 @@ authorization source or durable store.
 - [ ] Implement device registration/listing persistence after the fingerprint contract is fixed.
 - [ ] Implement agents, environments, and projects.
 - [x] Add the workspace agent identity and revocation domain boundary.
+- [x] Add the persisted active-agent authorization boundary.
 - [x] Add the workspace environment ownership domain boundary.
 - [x] Add the workspace project ownership and registered-root metadata domain boundary.
 - [ ] Implement session authorization and ticket metadata.
@@ -171,6 +174,15 @@ authorization source or durable store.
   synchronized revocation state across value copies. Revocation is owner-only, irreversible, and
   idempotent, with server-owned creation/revocation times. Defer fingerprint encoding, bootstrap,
   pairing proof, key pinning, persistence, and relay/session behavior to their owning slices.
+- 2026-07-18: Authorize a persisted agent only inside the caller's existing `pgx.Tx`, querying the
+  workspace-owned schema by canonical agent and authenticated owner IDs with `revoked_at IS NULL`
+  and holding `FOR SHARE` until the caller finishes. Revalidate bounded stored name, version,
+  X25519 public-key bytes, and creation time through the agent domain; missing, foreign, revoked,
+  future-created, or corrupt rows share one access-denied result. The query has a fixed maximum
+  deadline, performs no mutation, and does not trust fingerprint or last-seen metadata. This slice
+  changes no schema, index, backfill, outbox, or Redis state. Future session issuance must authorize
+  device, agent, and project and persist ticket metadata in this exact bounded transaction, with
+  rollback guaranteed on every exit.
 - 2026-07-18: Bind each environment directly to one authenticated owner and one active agent owned
   by that actor. Validate canonical environment IDs plus bounded display/provider metadata without
   inventing a provider taxonomy; the provider label is not authorization input. Keep stable
@@ -288,6 +300,16 @@ versions, uninitialized keys, and invalid timestamps. Copy and concurrency cover
 revocation is owner-only, irreversible, idempotent, and visible to every retained value. Adversarial
 review found no actionable issue and confirmed that fingerprint, pairing proof, key pinning,
 persistence, and relay/session trust remain explicitly deferred.
+
+2026-07-18 persisted-agent-authorization slice validation passed: 63 focused workspace cases and
+129 control-plane tests under the race detector, focused and module `go vet`, module verification,
+vulnerability scanning, ShellCheck, Bash syntax and smoke-harness regression checks, PostgreSQL 17
+integration, and the full repository format/lint/test/build and Compose infrastructure gates.
+Integration coverage proves owner-only active-row access, uniform missing/foreign/revoked/future/
+corrupt denial, no authorization mutation, bounded lock-wait recovery, and `FOR SHARE`
+authorization versus persisted revocation ordering. Adversarial review found no actionable issue.
+The future session service must still persist ticket metadata and finish or roll back on every exit
+inside the exact transaction used for device, agent, and project authorization.
 
 2026-07-18 workspace-environment-domain slice validation passed: 39 focused workspace cases and 104
 control-plane tests under the race detector, focused and module `go vet`, module verification,
