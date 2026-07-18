@@ -15,3 +15,13 @@ handle.
 This domain boundary does not define fingerprint encoding, signed-agent bootstrap, pairing proof,
 key pinning, persistence, last-seen updates, or relay/session behavior. Those require their owning
 M2 persistence and M3/M4 security slices.
+
+The environment domain binds a canonical opaque environment ID and bounded display/provider
+metadata to an authenticated owner and an active agent already owned by that actor. The provider
+label is metadata only and never decides authorization. New environments cannot reference a zero,
+foreign-owned, or revoked agent.
+
+Environment ownership remains stable if the linked agent is revoked later. `Environment.OwnedBy`
+proves only the single-owner relationship; it is not an agent-status or session-authorization check.
+Future persisted creation must re-read committed agent ownership/status, and session issuance must
+separately authorize the current agent and project in one bounded transaction.

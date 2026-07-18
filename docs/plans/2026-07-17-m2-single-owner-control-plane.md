@@ -90,6 +90,7 @@ authorization source or durable store.
 - [ ] Implement device registration/listing persistence after the fingerprint contract is fixed.
 - [ ] Implement agents, environments, and projects.
 - [x] Add the workspace agent identity and revocation domain boundary.
+- [x] Add the workspace environment ownership domain boundary.
 - [ ] Implement session authorization and ticket metadata.
 - [ ] Implement worker outbox processing.
 - [ ] Integrate the Flutter M2 surface.
@@ -169,6 +170,12 @@ authorization source or durable store.
   synchronized revocation state across value copies. Revocation is owner-only, irreversible, and
   idempotent, with server-owned creation/revocation times. Defer fingerprint encoding, bootstrap,
   pairing proof, key pinning, persistence, and relay/session behavior to their owning slices.
+- 2026-07-18: Bind each environment directly to one authenticated owner and one active agent owned
+  by that actor. Validate canonical environment IDs plus bounded display/provider metadata without
+  inventing a provider taxonomy; the provider label is not authorization input. Keep stable
+  environment ownership distinct from current agent trust: agent revocation does not erase the
+  owner's environment record, while future session issuance must still authorize the persisted
+  agent and project separately. This slice changes no schema and exposes no transport behavior.
 
 ## Validation
 
@@ -272,6 +279,16 @@ versions, uninitialized keys, and invalid timestamps. Copy and concurrency cover
 revocation is owner-only, irreversible, idempotent, and visible to every retained value. Adversarial
 review found no actionable issue and confirmed that fingerprint, pairing proof, key pinning,
 persistence, and relay/session trust remain explicitly deferred.
+
+2026-07-18 workspace-environment-domain slice validation passed: 39 focused workspace cases and 104
+control-plane tests under the race detector, focused and module `go vet`, module verification,
+vulnerability scanning, and the full repository format/lint/test/build gates. Negative coverage
+rejects zero/foreign actors, zero/foreign/revoked agents, malformed IDs, invalid or oversized
+display/provider metadata, and invalid creation times. Lifecycle coverage proves stable owner access
+after later agent revocation without treating that ownership check as current agent/session trust.
+Adversarial review found one Low issue: creation could predate the linked agent. Rejecting strictly
+pre-agent timestamps plus same-instant and one-nanosecond-before regression coverage resolved it;
+re-review found no remaining issue.
 
 ## Recovery and rollback
 
