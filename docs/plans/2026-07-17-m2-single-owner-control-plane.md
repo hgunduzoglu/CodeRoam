@@ -38,7 +38,8 @@ integration. Those remain assigned to later milestones.
 - The outbox module now exposes closed metadata-only event kinds and can enqueue a fixed empty JSON
   event only inside a caller-owned PostgreSQL transaction.
 - The session module now defines bounded owner/device/agent/project/region metadata without exposing
-  an unsigned placeholder relay ticket or carrying secrets and engineering payloads.
+  an unsigned placeholder relay ticket or carrying secrets and engineering payloads, and can insert
+  that metadata only inside a caller-owned PostgreSQL transaction.
 - The control-plane runtime opens and verifies a bounded PostgreSQL pool before serving, drains HTTP
   requests during shutdown, and closes the pool after the server stops.
 - The worker emits a heartbeat but does not claim or process outbox events.
@@ -103,6 +104,7 @@ authorization source or durable store.
 - [x] Add the workspace project ownership and registered-root metadata domain boundary.
 - [x] Add the persisted owner- and agent-bound project authorization boundary.
 - [x] Add the bounded session metadata domain boundary.
+- [x] Persist validated session metadata inside a caller-owned transaction.
 - [ ] Implement session authorization and ticket metadata.
 - [ ] Implement worker outbox processing.
 - [ ] Integrate the Flutter M2 surface.
@@ -228,6 +230,12 @@ authorization source or durable store.
   pairing secret, or engineering payload. The application layer must still perform all persisted
   authorization and storage in one transaction; M3/M4 retain ticket signing, replay protection,
   relay validation, and endpoint pairing.
+- 2026-07-19: Persist validated session metadata only through an existing `pgx.Tx`, under a fixed
+  maximum deadline, without letting the repository begin or finish the transaction. Map the
+  session primary-key conflict to a typed duplicate result, keep invalid/canceled calls SQL-free,
+  and preserve rollback/commit visibility. Emit no outbox event because this slice creates no relay
+  credential or external side effect. The next application-service slice must perform device,
+  agent, and exact project authorization before calling `Create` in this same transaction.
 
 ## Validation
 
@@ -391,6 +399,16 @@ rejects zero actors, malformed resource IDs, empty/oversized/noncanonical relay-
 zero start times while proving exact ownership and UTC normalization. Adversarial review found no
 actionable issue and confirmed the type exposes no token, serialization, signing, nonce, expiry,
 secret, or engineering-payload surface.
+
+2026-07-19 session-metadata-persistence slice validation passed: 15 focused session cases and 146
+control-plane tests under the race detector, focused and module `go vet`, module verification,
+vulnerability scanning, ShellCheck, Bash syntax and smoke-harness regression checks, PostgreSQL 17
+integration, and the full repository format/lint/test/build and Compose infrastructure gates.
+Integration coverage proves transaction-local visibility, rollback removal, exact metadata-only
+commit, typed duplicate rejection, SQL-free invalid and canceled calls, bounded unique-key
+contention, and successful retry. Adversarial review found one Low fixture-ownership gap; proving
+each random committed ID absent before registering exact-ID cleanup resolved it, and re-review found
+no remaining persistence, transaction-ownership, or cleanup issue.
 
 ## Recovery and rollback
 

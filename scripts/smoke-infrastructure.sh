@@ -72,6 +72,9 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
       go test -count=1 -run '^TestEnqueueIntegration$' ./internal/outbox)
   (cd services/control-plane && \
     POSTGRES_TEST_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' \
+      go test -count=1 -run '^TestRepositoryCreateIntegration$' ./internal/session)
+  (cd services/control-plane && \
+    POSTGRES_TEST_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' \
       go test -count=1 \
         -run '^(TestRepositoryAgentRevocationIntegration|TestRepositoryAuthorizeAgentIntegration|TestRepositoryAuthorizeAgentLockIntegration|TestRepositoryAuthorizeAgentTimeoutIntegration|TestRepositoryAuthorizeProjectIntegration|TestRepositoryAuthorizeProjectLockIntegration)$' \
         ./internal/workspace)
