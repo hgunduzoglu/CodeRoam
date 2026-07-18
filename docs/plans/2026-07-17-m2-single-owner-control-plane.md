@@ -32,7 +32,9 @@ integration. Those remain assigned to later milestones.
   metadata-only outbox event.
 - The workspace module now authorizes an active owner-scoped persisted agent inside a caller-owned
   bounded transaction, holds a shared row lock through that caller's commit or rollback, and can
-  atomically persist owner-scoped revocation with a metadata-only outbox event.
+  atomically persist owner-scoped revocation with a metadata-only outbox event. It also authorizes
+  persisted project ownership only when the project environment references the exact requested
+  agent, holding shared project/environment locks in that same caller-owned transaction.
 - The outbox module now exposes closed metadata-only event kinds and can enqueue a fixed empty JSON
   event only inside a caller-owned PostgreSQL transaction.
 - The control-plane runtime opens and verifies a bounded PostgreSQL pool before serving, drains HTTP
@@ -97,6 +99,7 @@ authorization source or durable store.
 - [x] Implement persisted agent revocation with atomic outbox behavior.
 - [x] Add the workspace environment ownership domain boundary.
 - [x] Add the workspace project ownership and registered-root metadata domain boundary.
+- [x] Add the persisted owner- and agent-bound project authorization boundary.
 - [ ] Implement session authorization and ticket metadata.
 - [ ] Implement worker outbox processing.
 - [ ] Integrate the Flutter M2 surface.
@@ -207,6 +210,14 @@ authorization source or durable store.
   does not imply current agent trust or session access. Repository URL, last-opened metadata,
   persistence, transport behavior, and runtime filesystem authorization remain deferred to their
   owning contracts.
+- 2026-07-19: Authorize a persisted project only inside the caller's existing `pgx.Tx`, requiring
+  the project, environment, and exact requested agent to share the authenticated owner. Revalidate
+  bounded environment/project metadata and creation ordering, reject future or corrupt rows, and
+  hold `FOR SHARE` on the project and environment until the caller finishes. Keep stable project
+  ownership separate from active-agent trust: the session service must call `AuthorizeAgent` first,
+  then `AuthorizeProject`, and persist ticket metadata in that same bounded transaction. The method
+  is read-only, ignores repository URL and last-opened metadata, and changes no schema, index,
+  backfill, outbox, Redis, transport, or filesystem behavior.
 
 ## Validation
 
@@ -351,6 +362,17 @@ invalid creation times. Lifecycle coverage proves stable project ownership after
 revocation without treating it as current agent or filesystem authority. Adversarial review found
 no actionable issue and confirmed that filesystem confinement, repository credentials, persistence,
 and session authorization remain explicitly deferred.
+
+2026-07-19 persisted-project-authorization slice validation passed: 65 focused workspace cases and
+131 control-plane tests under the race detector, focused and module `go vet`, module verification,
+vulnerability scanning, ShellCheck, Bash syntax and smoke-harness regression checks, PostgreSQL 17
+integration, and the full repository format/lint/test/build and Compose infrastructure gates.
+Integration coverage proves exact owner/agent/project binding, uniform foreign/wrong-agent/missing/
+future/corrupt denial, read-only behavior, stable ownership after agent revocation, bounded lock
+wait and retry, and shared project/environment locks through caller commit. Adversarial review found
+one Low test-harness cleanup gap that could retain locks after an early assertion; immediate bounded
+rollback cleanup for every acquired transaction resolved it, and re-review found no remaining
+authorization, transaction, or cleanup issue.
 
 ## Recovery and rollback
 

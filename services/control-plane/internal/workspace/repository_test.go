@@ -101,6 +101,73 @@ func TestRepositoryAuthorizeAgentRejectsInvalidBoundaries(t *testing.T) {
 	}
 }
 
+func TestRepositoryAuthorizeProjectRejectsInvalidBoundaries(t *testing.T) {
+	owner := newWorkspaceTestActor(t, "0123456789abcdef0123456789abcdef", "owner@example.com")
+	starter := &workspaceTransactionStarterStub{}
+	repository, err := NewRepository(starter, func() time.Time {
+		return time.Date(2026, time.July, 19, 12, 0, 0, 0, time.UTC)
+	})
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	agentID := "1123456789abcdef0123456789abcdef"
+	projectID := "2123456789abcdef0123456789abcdef"
+
+	var nilRepository *Repository
+	if err := nilRepository.AuthorizeProject(
+		context.Background(), nil, owner, agentID, projectID,
+	); !errors.Is(err, ErrWorkspacePersistenceUnavailable) {
+		t.Fatalf("nil Repository AuthorizeProject() error = %v, want ErrWorkspacePersistenceUnavailable", err)
+	}
+	if err := repository.AuthorizeProject(
+		nil, nil, owner, agentID, projectID,
+	); !errors.Is(err, ErrWorkspacePersistenceUnavailable) {
+		t.Fatalf("AuthorizeProject(nil context) error = %v, want ErrWorkspacePersistenceUnavailable", err)
+	}
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := repository.AuthorizeProject(
+		canceledCtx, nil, owner, agentID, projectID,
+	); !errors.Is(err, context.Canceled) {
+		t.Fatalf("AuthorizeProject(canceled context) error = %v, want context.Canceled", err)
+	}
+	if err := repository.AuthorizeProject(
+		context.Background(), nil, auth.Actor{}, agentID, projectID,
+	); !errors.Is(err, ErrProjectAccessDenied) {
+		t.Fatalf("AuthorizeProject(zero actor) error = %v, want ErrProjectAccessDenied", err)
+	}
+	if err := repository.AuthorizeProject(
+		context.Background(), nil, owner, "not-an-agent-id", projectID,
+	); !errors.Is(err, ErrInvalidAgent) {
+		t.Fatalf("AuthorizeProject(invalid agent id) error = %v, want ErrInvalidAgent", err)
+	}
+	if err := repository.AuthorizeProject(
+		context.Background(), nil, owner, agentID, "not-a-project-id",
+	); !errors.Is(err, ErrInvalidProject) {
+		t.Fatalf("AuthorizeProject(invalid project id) error = %v, want ErrInvalidProject", err)
+	}
+	zeroClockRepository, err := NewRepository(starter, func() time.Time { return time.Time{} })
+	if err != nil {
+		t.Fatalf("NewRepository(zero clock) error = %v", err)
+	}
+	if err := zeroClockRepository.AuthorizeProject(
+		context.Background(), nil, owner, agentID, projectID,
+	); !errors.Is(err, ErrWorkspacePersistenceUnavailable) {
+		t.Fatalf("AuthorizeProject(zero clock) error = %v, want ErrWorkspacePersistenceUnavailable", err)
+	}
+	if err := repository.AuthorizeProject(
+		context.Background(), nil, owner, agentID, projectID,
+	); !errors.Is(err, ErrWorkspacePersistenceUnavailable) {
+		t.Fatalf("AuthorizeProject(nil transaction) error = %v, want ErrWorkspacePersistenceUnavailable", err)
+	}
+	repository.operationMax = 0
+	if err := repository.AuthorizeProject(
+		context.Background(), nil, owner, agentID, projectID,
+	); !errors.Is(err, ErrWorkspacePersistenceUnavailable) {
+		t.Fatalf("AuthorizeProject(invalid operation maximum) error = %v, want ErrWorkspacePersistenceUnavailable", err)
+	}
+}
+
 func TestRepositoryRevokeAgentRejectsInvalidBoundaries(t *testing.T) {
 	owner := newWorkspaceTestActor(t, "0123456789abcdef0123456789abcdef", "owner@example.com")
 	clock := func() time.Time { return time.Date(2026, time.July, 19, 9, 0, 0, 0, time.UTC) }

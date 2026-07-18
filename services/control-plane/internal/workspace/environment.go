@@ -44,6 +44,23 @@ func NewEnvironment(
 	if !ok || agent.id.String() == "" || !agent.CanAuthorize(actor) {
 		return Environment{}, ErrEnvironmentAccessDenied
 	}
+	return newEnvironment(
+		ownerID, encodedID, agent.id, name, provider, agent.createdAt, createdAt,
+	)
+}
+
+func newEnvironment(
+	ownerID auth.UserID,
+	encodedID string,
+	agentID ids.ID,
+	name string,
+	provider string,
+	agentCreatedAt time.Time,
+	createdAt time.Time,
+) (Environment, error) {
+	if ownerID.String() == "" || agentID.String() == "" {
+		return Environment{}, ErrEnvironmentAccessDenied
+	}
 	environmentID, err := ids.Parse(encodedID)
 	if err != nil {
 		return Environment{}, fmt.Errorf("%w: id", ErrInvalidEnvironment)
@@ -63,14 +80,14 @@ func NewEnvironment(
 	if provider == "" || strings.ContainsFunc(provider, unicode.IsControl) {
 		return Environment{}, fmt.Errorf("%w: provider", ErrInvalidEnvironment)
 	}
-	if createdAt.IsZero() || createdAt.Before(agent.createdAt) {
+	if agentCreatedAt.IsZero() || createdAt.IsZero() || createdAt.Before(agentCreatedAt) {
 		return Environment{}, fmt.Errorf("%w: creation time", ErrInvalidEnvironment)
 	}
 
 	return Environment{
 		id:        environmentID,
 		ownerID:   ownerID,
-		agentID:   agent.id,
+		agentID:   agentID,
 		name:      name,
 		provider:  provider,
 		createdAt: createdAt.UTC(),

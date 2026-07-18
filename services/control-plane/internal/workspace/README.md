@@ -46,5 +46,14 @@ must confine project-relative paths beneath the persisted root using filesystem-
 Project ownership remains stable after agent revocation, while future session issuance must still
 authorize the persisted project and active agent separately in one bounded transaction.
 
+Persisted project authorization binds the project and its environment to the authenticated owner
+and requires that environment to reference the exact requested agent. It revalidates stored
+environment/project metadata and holds shared locks on both rows until the caller commits or rolls
+back. Missing, foreign-owned, agent-mismatched, future-created, or corrupt rows share one
+access-denied result. This check intentionally does not treat project ownership as current agent
+trust: session issuance must call `AuthorizeAgent` and `AuthorizeProject` inside the same bounded
+transaction before persisting any ticket metadata. Project authorization is read-only and does not
+change last-opened metadata or emit an outbox event.
+
 Optional repository URL and last-opened metadata remain deferred until their update and credential
 handling contracts are defined.

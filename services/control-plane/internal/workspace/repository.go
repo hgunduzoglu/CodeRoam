@@ -107,6 +107,86 @@ func (repository *Repository) AuthorizeAgent(
 	return nil
 }
 
+func (repository *Repository) AuthorizeProject(
+	ctx context.Context,
+	tx pgx.Tx,
+	actor auth.Actor,
+	encodedAgentID string,
+	encodedProjectID string,
+) error {
+	if ctx == nil || repository == nil || repository.now == nil || repository.operationMax <= 0 {
+		return ErrWorkspacePersistenceUnavailable
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	actorID, ok := actor.UserID()
+	if !ok {
+		return ErrProjectAccessDenied
+	}
+	agentID, err := ids.Parse(encodedAgentID)
+	if err != nil {
+		return fmt.Errorf("%w: id", ErrInvalidAgent)
+	}
+	projectID, err := ids.Parse(encodedProjectID)
+	if err != nil {
+		return fmt.Errorf("%w: id", ErrInvalidProject)
+	}
+	checkedAt := repository.now().UTC()
+	if checkedAt.IsZero() || tx == nil {
+		return ErrWorkspacePersistenceUnavailable
+	}
+	operationCtx, cancelOperation := context.WithTimeout(ctx, repository.operationMax)
+	defer cancelOperation()
+
+	var projectName, rootPath, environmentID, environmentName, provider string
+	var projectCreatedAt, environmentCreatedAt, agentCreatedAt time.Time
+	err = tx.QueryRow(operationCtx, `
+		SELECT p.name, p.root_path, p.created_at,
+		       e.id, e.name, e.provider, e.created_at,
+		       a.created_at
+		FROM workspace.projects AS p
+		JOIN workspace.environments AS e
+		  ON e.id = p.environment_id AND e.user_id = p.user_id
+		JOIN workspace.agents AS a
+		  ON a.id = e.agent_id AND a.user_id = e.user_id
+		WHERE p.id = $1 AND p.user_id = $2 AND a.id = $3
+		  AND octet_length(p.name) BETWEEN 1 AND $4
+		  AND octet_length(p.root_path) BETWEEN 1 AND $5
+		  AND octet_length(e.name) BETWEEN 1 AND $6
+		  AND octet_length(e.provider) BETWEEN 1 AND $7
+		  AND a.created_at <= e.created_at
+		  AND e.created_at <= p.created_at
+		  AND p.created_at <= $8
+		FOR SHARE OF p, e`,
+		projectID.String(), actorID.String(), agentID.String(), maxProjectNameBytes,
+		maxProjectRootBytes, maxEnvironmentNameBytes, maxEnvironmentProviderBytes, checkedAt,
+	).Scan(
+		&projectName, &rootPath, &projectCreatedAt,
+		&environmentID, &environmentName, &provider, &environmentCreatedAt,
+		&agentCreatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrProjectAccessDenied
+	}
+	if err != nil {
+		return workspacePersistenceError("authorize project", err)
+	}
+	environment, err := newEnvironment(
+		actorID, environmentID, agentID, environmentName, provider, agentCreatedAt, environmentCreatedAt,
+	)
+	if err != nil {
+		return ErrProjectAccessDenied
+	}
+	project, err := NewProject(
+		actor, projectID.String(), environment, projectName, rootPath, projectCreatedAt,
+	)
+	if err != nil || !project.OwnedBy(actor) {
+		return ErrProjectAccessDenied
+	}
+	return nil
+}
+
 func (repository *Repository) RevokeAgent(
 	ctx context.Context,
 	actor auth.Actor,
