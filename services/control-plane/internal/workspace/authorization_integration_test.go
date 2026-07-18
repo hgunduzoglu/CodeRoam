@@ -44,7 +44,7 @@ func TestRepositoryAuthorizeAgentIntegration(t *testing.T) {
 	foreignActor := newWorkspaceTestActor(t, "3123456789abcdef0123456789abcdef", "foreign@example.com")
 	ownerID, _ := owner.UserID()
 	checkedAt := time.Date(2026, time.July, 18, 20, 0, 0, 0, time.UTC)
-	repository, err := NewRepository(func() time.Time { return checkedAt })
+	repository, err := NewRepository(tx, func() time.Time { return checkedAt })
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
@@ -131,7 +131,7 @@ func TestRepositoryAuthorizeAgentTimeoutIntegration(t *testing.T) {
 		t.Fatalf("lock workspace agent table: %v", err)
 	}
 
-	repository, err := NewRepository(func() time.Time { return checkedAt })
+	repository, err := NewRepository(pool, func() time.Time { return checkedAt })
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
@@ -185,7 +185,7 @@ func TestRepositoryAuthorizeAgentLockIntegration(t *testing.T) {
 	ownerID, _ := owner.UserID()
 	checkedAt := time.Date(2026, time.July, 18, 20, 0, 0, 0, time.UTC)
 	agentID := insertCommittedAgentFixture(t, ctx, pool, ownerID.String(), checkedAt.Add(-time.Hour), 0x47)
-	repository, err := NewRepository(func() time.Time { return checkedAt })
+	repository, err := NewRepository(pool, func() time.Time { return checkedAt })
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
@@ -248,14 +248,22 @@ func applyWorkspaceIntegrationMigrations(
 	database postgresx.TransactionStarter,
 ) {
 	t.Helper()
-	sql, err := os.ReadFile("migrations/000001_init.sql")
-	if err != nil {
-		t.Fatalf("read workspace migration: %v", err)
-	}
-	if err := postgresx.ApplyMigrations(ctx, database, []postgresx.Migration{{
-		Scope: "workspace", Version: 1, Name: "init", SQL: string(sql),
-	}}); err != nil {
-		t.Fatalf("apply workspace migration: %v", err)
+	for _, migration := range []struct {
+		scope string
+		path  string
+	}{
+		{scope: "workspace", path: "migrations/000001_init.sql"},
+		{scope: "outbox", path: "../outbox/migrations/000001_init.sql"},
+	} {
+		sql, err := os.ReadFile(migration.path)
+		if err != nil {
+			t.Fatalf("read %s migration: %v", migration.scope, err)
+		}
+		if err := postgresx.ApplyMigrations(ctx, database, []postgresx.Migration{{
+			Scope: migration.scope, Version: 1, Name: "init", SQL: string(sql),
+		}}); err != nil {
+			t.Fatalf("apply %s migration: %v", migration.scope, err)
+		}
 	}
 }
 

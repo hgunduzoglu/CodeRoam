@@ -31,7 +31,8 @@ integration. Those remain assigned to later milestones.
   authorization after irreversible revocation, and can atomically persist revocation with a
   metadata-only outbox event.
 - The workspace module now authorizes an active owner-scoped persisted agent inside a caller-owned
-  bounded transaction and holds a shared row lock through that caller's commit or rollback.
+  bounded transaction, holds a shared row lock through that caller's commit or rollback, and can
+  atomically persist owner-scoped revocation with a metadata-only outbox event.
 - The outbox module now exposes closed metadata-only event kinds and can enqueue a fixed empty JSON
   event only inside a caller-owned PostgreSQL transaction.
 - The control-plane runtime opens and verifies a bounded PostgreSQL pool before serving, drains HTTP
@@ -93,6 +94,7 @@ authorization source or durable store.
 - [ ] Implement agents, environments, and projects.
 - [x] Add the workspace agent identity and revocation domain boundary.
 - [x] Add the persisted active-agent authorization boundary.
+- [x] Implement persisted agent revocation with atomic outbox behavior.
 - [x] Add the workspace environment ownership domain boundary.
 - [x] Add the workspace project ownership and registered-root metadata domain boundary.
 - [ ] Implement session authorization and ticket metadata.
@@ -183,6 +185,14 @@ authorization source or durable store.
   changes no schema, index, backfill, outbox, or Redis state. Future session issuance must authorize
   device, agent, and project and persist ticket metadata in this exact bounded transaction, with
   rollback guaranteed on every exit.
+- 2026-07-19: Persist agent revocation by locking the owner-scoped row with `FOR UPDATE`, deriving
+  the timestamp from the server clock, and committing `revoked_at` plus one fixed-empty-payload
+  `agent.revoked.v1` event in the same bounded PostgreSQL transaction. Missing, foreign, and
+  malformed-owner rows share the access-denied result; future-created rows fail closed. Repeated
+  calls preserve the first timestamp and emit no second event. Pre-commit failures roll back both
+  writes, while a commit error has an unknown outcome and requires the same idempotent retry. The
+  exclusive row lock linearizes with persisted authorization's shared lock. This slice changes no
+  schema, index, backfill, Redis state, transport behavior, or worker processing.
 - 2026-07-18: Bind each environment directly to one authenticated owner and one active agent owned
   by that actor. Validate canonical environment IDs plus bounded display/provider metadata without
   inventing a provider taxonomy; the provider label is not authorization input. Keep stable
@@ -310,6 +320,17 @@ corrupt denial, no authorization mutation, bounded lock-wait recovery, and `FOR 
 authorization versus persisted revocation ordering. Adversarial review found no actionable issue.
 The future session service must still persist ticket metadata and finish or roll back on every exit
 inside the exact transaction used for device, agent, and project authorization.
+
+2026-07-19 persisted-agent-revocation slice validation passed: 64 focused workspace cases, six
+outbox cases, and 130 control-plane tests under the race detector, focused and module `go vet`,
+module verification, vulnerability scanning, ShellCheck, Bash syntax and smoke-harness regression
+checks, PostgreSQL 17 integration, and the full repository format/lint/test/build and Compose
+infrastructure gates. Integration coverage proves owner-only locking, exact metadata-only event
+commit, repeat idempotency, uniform foreign/missing/corrupt-owner denial, future-created failure,
+outbox-failure rollback and recovery, bounded row-lock timeout and retry, and safe retry after an
+outcome-ambiguous commit without changing the first timestamp or adding an event. Adversarial review
+found one Low documentation gap around ambiguous commit outcomes; the explicit retry contract and
+its regression test resolved it, with no code-level security or correctness defect found.
 
 2026-07-18 workspace-environment-domain slice validation passed: 39 focused workspace cases and 104
 control-plane tests under the race detector, focused and module `go vet`, module verification,

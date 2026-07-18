@@ -30,6 +30,14 @@ func TestNewEvent(t *testing.T) {
 	if !event.availableAt.Equal(availableAt) || event.availableAt.Location() != time.UTC {
 		t.Fatalf("availableAt = %v", event.availableAt)
 	}
+	agentEvent, err := NewEvent(EventAgentRevoked, aggregateID, availableAt)
+	if err != nil {
+		t.Fatalf("NewEvent(agent revoked) error = %v", err)
+	}
+	if agentEvent.eventType != "agent.revoked.v1" || agentEvent.aggregateType != "agent" ||
+		agentEvent.aggregateID != aggregateID {
+		t.Fatal("NewEvent(agent revoked) did not preserve validated metadata")
+	}
 
 	tests := map[string]struct {
 		kind        EventKind

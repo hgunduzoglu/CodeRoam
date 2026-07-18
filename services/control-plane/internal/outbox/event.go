@@ -21,6 +21,7 @@ type EventKind uint8
 
 const (
 	EventDeviceRevoked EventKind = iota + 1
+	EventAgentRevoked
 )
 
 type Event struct {
@@ -37,6 +38,9 @@ func NewEvent(kind EventKind, aggregateID ids.ID, availableAt time.Time) (Event,
 	case EventDeviceRevoked:
 		eventType = "device.revoked.v1"
 		aggregateType = "device"
+	case EventAgentRevoked:
+		eventType = "agent.revoked.v1"
+		aggregateType = "agent"
 	default:
 		return Event{}, fmt.Errorf("%w: kind", ErrInvalidEvent)
 	}

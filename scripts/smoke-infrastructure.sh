@@ -73,7 +73,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   (cd services/control-plane && \
     POSTGRES_TEST_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' \
       go test -count=1 \
-        -run '^(TestRepositoryAuthorizeAgentIntegration|TestRepositoryAuthorizeAgentLockIntegration|TestRepositoryAuthorizeAgentTimeoutIntegration)$' \
+        -run '^(TestRepositoryAgentRevocationIntegration|TestRepositoryAuthorizeAgentIntegration|TestRepositoryAuthorizeAgentLockIntegration|TestRepositoryAuthorizeAgentTimeoutIntegration)$' \
         ./internal/workspace)
 
   assert_http_health http://localhost:8080/healthz coderoam-control-plane

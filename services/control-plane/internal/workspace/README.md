@@ -12,10 +12,18 @@ must not reach the constructor as authority. Persisted agent authorization re-re
 workspace state inside the caller's existing bounded PostgreSQL transaction, rejects future-created
 or revoked agents, and holds a shared row lock until that caller commits or rolls back.
 
+Persisted agent revocation re-reads and locks the row by both agent ID and authenticated owner ID,
+uses a server-owned clock, and commits `revoked_at` with one metadata-only `agent.revoked.v1` outbox
+event containing `{}` in the same PostgreSQL transaction. Missing, foreign-owned, and
+malformed-owner rows share the same access-denied result. Repeated revocation preserves the first
+timestamp and emits no second event; an update or outbox failure before commit rolls back the state
+change. A commit error has an unknown outcome and must be retried: the retry returns success without
+a second event if the transaction committed, or performs the atomic revocation if it did not.
+
 The persistence boundary ignores fingerprint and last-seen metadata until their M3 contracts are
-defined; it does not treat a size-valid public key as pairing proof. It does not begin, commit, or
-roll back the caller's transaction. Future session issuance must authorize the persisted device,
-agent, and project and write ticket metadata inside that exact transaction.
+defined; it does not treat a size-valid public key as pairing proof. Persisted authorization does
+not begin, commit, or roll back the caller's transaction. Future session issuance must authorize
+the persisted device, agent, and project and write ticket metadata inside that exact transaction.
 
 The environment domain binds a canonical opaque environment ID and bounded display/provider
 metadata to an authenticated owner and an active agent already owned by that actor. The provider
