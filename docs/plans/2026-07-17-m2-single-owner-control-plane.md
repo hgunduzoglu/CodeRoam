@@ -91,6 +91,7 @@ authorization source or durable store.
 - [ ] Implement agents, environments, and projects.
 - [x] Add the workspace agent identity and revocation domain boundary.
 - [x] Add the workspace environment ownership domain boundary.
+- [x] Add the workspace project ownership and registered-root metadata domain boundary.
 - [ ] Implement session authorization and ticket metadata.
 - [ ] Implement worker outbox processing.
 - [ ] Integrate the Flutter M2 surface.
@@ -176,6 +177,14 @@ authorization source or durable store.
   environment ownership distinct from current agent trust: agent revocation does not erase the
   owner's environment record, while future session issuance must still authorize the persisted
   agent and project separately. This slice changes no schema and exposes no transport behavior.
+- 2026-07-18: Bind each project directly to an authenticated owner through an environment already
+  owned by that actor. Validate canonical project IDs, bounded display metadata, a canonical
+  absolute POSIX root narrower than `/`, and creation times no earlier than the environment. Treat
+  the registered root only as control-plane metadata: M5 must still confine project-relative paths
+  against traversal, symlinks, races, and filesystem changes at use time. Stable project ownership
+  does not imply current agent trust or session access. Repository URL, last-opened metadata,
+  persistence, transport behavior, and runtime filesystem authorization remain deferred to their
+  owning contracts.
 
 ## Validation
 
@@ -289,6 +298,16 @@ after later agent revocation without treating that ownership check as current ag
 Adversarial review found one Low issue: creation could predate the linked agent. Rejecting strictly
 pre-agent timestamps plus same-instant and one-nanosecond-before regression coverage resolved it;
 re-review found no remaining issue.
+
+2026-07-18 workspace-project-domain slice validation passed: 61 focused workspace cases and 127
+control-plane tests under the race detector, focused and module `go vet`, module verification,
+vulnerability scanning, and the full repository format/lint/test/build gates. Negative coverage
+rejects zero/foreign actors and environments, malformed project IDs, invalid or oversized display
+metadata, relative/root/noncanonical/control-character/invalid-UTF-8/oversized root paths, and
+invalid creation times. Lifecycle coverage proves stable project ownership after later agent
+revocation without treating it as current agent or filesystem authority. Adversarial review found
+no actionable issue and confirmed that filesystem confinement, repository credentials, persistence,
+and session authorization remain explicitly deferred.
 
 ## Recovery and rollback
 

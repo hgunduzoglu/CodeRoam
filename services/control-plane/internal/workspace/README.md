@@ -25,3 +25,17 @@ Environment ownership remains stable if the linked agent is revoked later. `Envi
 proves only the single-owner relationship; it is not an agent-status or session-authorization check.
 Future persisted creation must re-read committed agent ownership/status, and session issuance must
 separately authorize the current agent and project in one bounded transaction.
+
+The project domain binds a canonical opaque project ID, bounded display name, and one canonical
+absolute POSIX root-path value to an environment already owned by the authenticated actor. The
+filesystem root itself is rejected because a project registration must narrow authority. Project
+creation cannot predate its environment.
+
+The registered root is control-plane metadata, not proof that a path is safe to access. It does not
+resolve symlinks, defend against filesystem races, or authorize a runtime request. The M5 agent
+must confine project-relative paths beneath the persisted root using filesystem-safe operations.
+Project ownership remains stable after agent revocation, while future session issuance must still
+authorize the persisted project and active agent separately in one bounded transaction.
+
+Optional repository URL and last-opened metadata remain deferred until their update and credential
+handling contracts are defined.
