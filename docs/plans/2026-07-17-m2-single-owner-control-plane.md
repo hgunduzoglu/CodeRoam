@@ -37,6 +37,8 @@ integration. Those remain assigned to later milestones.
   agent, holding shared project/environment locks in that same caller-owned transaction.
 - The outbox module now exposes closed metadata-only event kinds and can enqueue a fixed empty JSON
   event only inside a caller-owned PostgreSQL transaction.
+- The session module now defines bounded owner/device/agent/project/region metadata without exposing
+  an unsigned placeholder relay ticket or carrying secrets and engineering payloads.
 - The control-plane runtime opens and verifies a bounded PostgreSQL pool before serving, drains HTTP
   requests during shutdown, and closes the pool after the server stops.
 - The worker emits a heartbeat but does not claim or process outbox events.
@@ -100,6 +102,7 @@ authorization source or durable store.
 - [x] Add the workspace environment ownership domain boundary.
 - [x] Add the workspace project ownership and registered-root metadata domain boundary.
 - [x] Add the persisted owner- and agent-bound project authorization boundary.
+- [x] Add the bounded session metadata domain boundary.
 - [ ] Implement session authorization and ticket metadata.
 - [ ] Implement worker outbox processing.
 - [ ] Integrate the Flutter M2 surface.
@@ -218,6 +221,13 @@ authorization source or durable store.
   then `AuthorizeProject`, and persist ticket metadata in that same bounded transaction. The method
   is read-only, ignores repository URL and last-opened metadata, and changes no schema, index,
   backfill, outbox, Redis, transport, or filesystem behavior.
+- 2026-07-19: Define session metadata as one authenticated owner plus canonical session, device,
+  agent, and project IDs, a bounded canonical server-selected relay-region label, and a server-owned
+  start time. Keep every field private and expose no serialization or credential surface. A session
+  domain value is not a relay ticket and contains no signature, nonce, expiry claim, E2E material,
+  pairing secret, or engineering payload. The application layer must still perform all persisted
+  authorization and storage in one transaction; M3/M4 retain ticket signing, replay protection,
+  relay validation, and endpoint pairing.
 
 ## Validation
 
@@ -373,6 +383,14 @@ wait and retry, and shared project/environment locks through caller commit. Adve
 one Low test-harness cleanup gap that could retain locks after an early assertion; immediate bounded
 rollback cleanup for every acquired transaction resolved it, and re-review found no remaining
 authorization, transaction, or cleanup issue.
+
+2026-07-19 session-metadata-domain slice validation passed: 14 focused session cases and 145
+control-plane tests under the race detector, focused and module `go vet`, module verification,
+vulnerability scanning, and the full repository format/lint/test/build gates. Negative coverage
+rejects zero actors, malformed resource IDs, empty/oversized/noncanonical relay-region labels, and
+zero start times while proving exact ownership and UTC normalization. Adversarial review found no
+actionable issue and confirmed the type exposes no token, serialization, signing, nonce, expiry,
+secret, or engineering-payload surface.
 
 ## Recovery and rollback
 
