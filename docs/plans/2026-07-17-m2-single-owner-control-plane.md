@@ -27,8 +27,9 @@ integration. Those remain assigned to later milestones.
 - The auth application service accepts bounded opaque evidence only through an injected verifier,
   re-resolves the verified user in PostgreSQL, and issues an opaque actor on exact identity match.
 - The device module now validates mobile identity metadata and X25519 public keys, binds new devices
-  to an authenticated actor, denies authorization after owner-only irreversible revocation, and can
-  atomically persist revocation with a metadata-only outbox event.
+  to an authenticated actor, authorizes only an active owner-scoped persisted row, denies
+  authorization after irreversible revocation, and can atomically persist revocation with a
+  metadata-only outbox event.
 - The outbox module now exposes closed metadata-only event kinds and can enqueue a fixed empty JSON
   event only inside a caller-owned PostgreSQL transaction.
 - The control-plane runtime opens and verifies a bounded PostgreSQL pool before serving, drains HTTP
@@ -85,6 +86,7 @@ authorization source or durable store.
 - [x] Add the device identity and revocation domain contract.
 - [x] Add the metadata-only transactional outbox enqueue primitive.
 - [x] Implement persisted device revocation with atomic outbox behavior.
+- [x] Add the persisted active-device authorization boundary.
 - [ ] Implement device registration/listing persistence after the fingerprint contract is fixed.
 - [ ] Implement agents, environments, and projects.
 - [ ] Implement session authorization and ticket metadata.
@@ -152,6 +154,14 @@ authorization source or durable store.
   caller deadlines. Pre-commit failures roll back atomically; commit errors have unknown outcome and
   require the same idempotent retry. This slice changes no schema; registration remains deferred
   rather than inventing the M3 public-key fingerprint encoding.
+- 2026-07-18: Authorize a persisted device only inside the caller's existing `pgx.Tx`, querying the
+  device-owned schema with canonical device and authenticated owner IDs plus `revoked_at IS NULL`
+  and holding a shared row lock until the caller finishes the transaction. This lets the future
+  session service write ticket metadata in the same bounded transaction, linearizing issuance with
+  revocation. Revalidate bounded stored identity fields through the device domain constructor;
+  missing, foreign, revoked, future-paired, and corrupt rows share one access-denied result. The
+  method performs no mutation or outbox write and ignores fingerprint data until M3 defines its
+  encoding and proof semantics.
 
 ## Validation
 
@@ -236,6 +246,16 @@ failure, outbox-failure rollback and recovery, and exact transaction-scoped clea
 review found an unbounded owner-row lock wait and an inaccurate claim that commit errors always roll
 back. A fixed repository operation deadline, held-lock timeout/retry regression, and documentation
 of outcome-ambiguous commits resolved both; re-review found no remaining issues.
+
+2026-07-18 persisted-device-authorization slice validation passed: 19 focused device cases and 66
+control-plane tests under the race detector, focused and module `go vet`, module verification,
+vulnerability scanning, ShellCheck, Bash syntax validation, PostgreSQL 17 integration, and the full
+repository format/lint/test/build gates. Integration coverage proves owner-only active-row access,
+uniform missing/foreign/revoked/future/corrupt denial, no authorization mutation or event, bounded
+lock-wait recovery, and `FOR SHARE` authorization versus `FOR UPDATE` revocation linearization.
+Adversarial review found no actionable issue. The future session slice must still authorize and
+persist ticket metadata in the exact same bounded transaction, with guaranteed rollback on every
+exit, before session issuance can be considered race-safe.
 
 ## Recovery and rollback
 

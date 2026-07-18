@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/hgunduzoglu/coderoam/packages/go/cryptox"
 	"github.com/hgunduzoglu/coderoam/packages/go/ids"
 	"github.com/hgunduzoglu/coderoam/services/control-plane/internal/auth"
 	"github.com/hgunduzoglu/coderoam/services/control-plane/internal/outbox"
@@ -45,6 +46,68 @@ func NewRepository(transactions transactionStarter, now func() time.Time) (*Repo
 		enqueue:      outbox.Enqueue,
 		operationMax: repositoryOperationTimeout,
 	}, nil
+}
+
+func (repository *Repository) Authorize(
+	ctx context.Context,
+	tx pgx.Tx,
+	actor auth.Actor,
+	encodedDeviceID string,
+) error {
+	if ctx == nil || repository == nil || repository.now == nil || repository.operationMax <= 0 {
+		return ErrDevicePersistenceUnavailable
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	actorID, ok := actor.UserID()
+	if !ok {
+		return ErrDeviceAccessDenied
+	}
+	deviceID, err := ids.Parse(encodedDeviceID)
+	if err != nil {
+		return fmt.Errorf("%w: id", ErrInvalidDevice)
+	}
+	checkedAt := repository.now().UTC()
+	if checkedAt.IsZero() {
+		return ErrDevicePersistenceUnavailable
+	}
+	if tx == nil {
+		return ErrDevicePersistenceUnavailable
+	}
+	operationCtx, cancelOperation := context.WithTimeout(ctx, repository.operationMax)
+	defer cancelOperation()
+
+	var name, storedPlatform string
+	var publicKeyBytes []byte
+	var pairedAt time.Time
+	err = tx.QueryRow(operationCtx, `
+		SELECT name, platform, static_public_key, paired_at
+		FROM device.devices
+		WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL
+		  AND octet_length(name) BETWEEN 1 AND $3
+		  AND platform IN ('ios', 'ipados', 'android')
+		  AND octet_length(static_public_key) = 32
+		  AND paired_at <= $4
+		FOR SHARE`,
+		deviceID.String(), actorID.String(), maxDeviceNameBytes, checkedAt).Scan(
+		&name, &storedPlatform, &publicKeyBytes, &pairedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrDeviceAccessDenied
+	}
+	if err != nil {
+		return persistenceError("authorize device", err)
+	}
+	publicKey, err := cryptox.ParseX25519PublicKey(publicKeyBytes)
+	if err != nil {
+		return ErrDeviceAccessDenied
+	}
+	storedDevice, err := NewDevice(actor, deviceID.String(), name, Platform(storedPlatform), publicKey, pairedAt)
+	if err != nil || !storedDevice.CanAuthorize(actor) {
+		return ErrDeviceAccessDenied
+	}
+	return nil
 }
 
 func (repository *Repository) Revoke(ctx context.Context, actor auth.Actor, encodedDeviceID string) (err error) {
