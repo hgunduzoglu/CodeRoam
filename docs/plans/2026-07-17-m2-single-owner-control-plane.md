@@ -26,7 +26,8 @@ integration. Those remain assigned to later milestones.
   PostgreSQL repository for validated users with typed duplicate and not-found failures. It also
   owns exact, case-sensitive OIDC issuer/subject bindings without treating email as identity.
 - The auth application service accepts bounded opaque evidence only through an injected verifier,
-  re-resolves the verified user in PostgreSQL, and issues an opaque actor on exact identity match.
+  resolves verified OIDC claims through the exact auth-owned issuer/subject binding, re-resolves
+  the user in PostgreSQL, and issues an opaque actor only after both identity checks match.
 - The device module now validates mobile identity metadata and X25519 public keys, binds new devices
   to an authenticated actor, authorizes only an active owner-scoped persisted row, denies
   authorization after irreversible revocation, and can atomically persist revocation with a
@@ -109,6 +110,7 @@ authorization source or durable store.
 - [x] Add the auth application service and fail-closed actor boundary.
 - [x] Add provider-neutral authenticated REST/OpenAPI behavior.
 - [x] Add exact auth-owned OIDC issuer/subject identity bindings.
+- [x] Add the fail-closed verified-claims-to-local-user adapter.
 - [ ] Wire an approved authentication adapter into the control-plane runtime.
 - [x] Add the device identity and revocation domain contract.
 - [x] Add the metadata-only transactional outbox enqueue primitive.
@@ -176,6 +178,10 @@ authorization source or durable store.
   HTTPS issuer, audience, signature, and temporal claims before resolving the exact case-sensitive
   `(issuer, subject)` pair through auth-owned persistence. Never infer account identity from email,
   and keep registered device identity and trust independent from the OIDC account identifier.
+- 2026-07-20: Keep signed-token verification separate from local identity resolution. The OIDC
+  adapter accepts only already-verified issuer/subject claims, reconstructs the bounded exact
+  identity, maps an unlinked identity to the same rejection as an invalid token, and preserves
+  dependency failures for the auth service to sanitize as unavailable.
 - 2026-07-17: Require an authenticated actor to register or revoke a device. Accept only canonical
   opaque IDs, bounded names, explicit iOS/iPadOS/Android platforms, initialized X25519 public keys,
   and nonzero server-owned pairing times. Active-device authorization requires the exact owning
@@ -625,6 +631,13 @@ full PostgreSQL 17/Redis Compose infrastructure gate. Integration coverage prove
 case-sensitive issuer/subject lookup, duplicate-rebind rejection, missing-user rollback recovery,
 repeatable forward migration, and deterministic multi-version ledger ordering. The empty-query
 issuer edge case found in adversarial review was fixed, and final security re-review was clean.
+
+2026-07-20 OIDC-identity-adapter slice validation passed: 69 focused auth cases normally and under
+the race detector, 287 full control-plane cases under the race detector, full control-plane
+`go vet`, and `git diff --check`. Coverage proves exact verified issuer/subject lookup, uniform
+invalid-token and unlinked-identity rejection, cancellation propagation, sanitized downstream
+failure handling, and fail-closed plain/typed-nil composition. The typed-nil panic path found in
+adversarial review was fixed, and final security re-review was clean.
 
 ## Recovery and rollback
 
