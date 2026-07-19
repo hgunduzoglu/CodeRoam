@@ -59,8 +59,15 @@ final class SessionStartController extends ChangeNotifier {
       _status = SessionStartStatus.metadataReady;
       notifyListeners();
       return true;
-    } on SessionStartOutcomeUnknown {
+    } on SessionStartOutcomeUnknown catch (failure) {
       if (_disposed) {
+        return false;
+      }
+      if (!request.sameAs(failure.request)) {
+        _metadata = null;
+        _outcomeUnknownRequest = null;
+        _status = SessionStartStatus.failed;
+        notifyListeners();
         return false;
       }
       _metadata = null;

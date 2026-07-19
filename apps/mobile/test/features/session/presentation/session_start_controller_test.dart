@@ -66,12 +66,12 @@ void main() {
   test(
     'retries an unknown commit outcome with the exact same request',
     () async {
+      final request = _request();
       final repository = _SessionRepositoryStub(
-        error: const SessionStartOutcomeUnknown(),
+        error: SessionStartOutcomeUnknown(request),
       );
       final controller = SessionStartController(repository);
       addTearDown(controller.dispose);
-      final request = _request();
 
       expect(await controller.start(request), isFalse);
       expect(controller.status, SessionStartStatus.outcomeUnknown);

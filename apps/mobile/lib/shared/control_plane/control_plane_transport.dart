@@ -5,6 +5,26 @@ import 'dart:typed_data';
 typedef ControlPlaneRequestOpener =
     Future<HttpClientRequest> Function(String method, Uri uri);
 
+final class ControlPlaneOrigin {
+  ControlPlaneOrigin._(this.uri);
+
+  factory ControlPlaneOrigin.parse(Uri uri) {
+    if (!_validOrigin(uri)) {
+      throw ArgumentError('Control-plane origin is invalid.');
+    }
+    return ControlPlaneOrigin._(uri.replace(path: ''));
+  }
+
+  final Uri uri;
+
+  Uri endpoint(String path, {Map<String, String>? queryParameters}) {
+    if (!path.startsWith('/') || path.contains('?') || path.contains('#')) {
+      throw ArgumentError('Control-plane endpoint path is invalid.');
+    }
+    return uri.replace(path: path, queryParameters: queryParameters);
+  }
+}
+
 final class ControlPlaneTransportException implements Exception {
   const ControlPlaneTransportException();
 }
@@ -43,7 +63,7 @@ abstract interface class ControlPlaneTransport {
 
 final class IoControlPlaneTransport implements ControlPlaneTransport {
   IoControlPlaneTransport({
-    required Uri origin,
+    required ControlPlaneOrigin origin,
     Duration timeout = const Duration(seconds: 10),
     int maxResponseBytes = 64 * 1024,
     ControlPlaneRequestOpener? openRequest,
@@ -52,9 +72,7 @@ final class IoControlPlaneTransport implements ControlPlaneTransport {
        _origin = origin,
        _openRequest = openRequest,
        _client = HttpClient() {
-    if (!_validOrigin(origin) ||
-        timeout <= Duration.zero ||
-        maxResponseBytes < 1) {
+    if (timeout <= Duration.zero || maxResponseBytes < 1) {
       _client.close(force: true);
       throw ArgumentError('Control-plane transport bounds are invalid.');
     }
@@ -63,14 +81,14 @@ final class IoControlPlaneTransport implements ControlPlaneTransport {
 
   final Duration _timeout;
   final int _maxResponseBytes;
-  final Uri _origin;
+  final ControlPlaneOrigin _origin;
   final ControlPlaneRequestOpener? _openRequest;
   final HttpClient _client;
   bool _closed = false;
 
   @override
   Future<ControlPlaneHttpResponse> send(ControlPlaneHttpRequest request) async {
-    if (_closed || !_validRequest(_origin, request)) {
+    if (_closed || !_validRequest(_origin.uri, request)) {
       throw const ControlPlaneTransportException();
     }
     final stopwatch = Stopwatch()..start();
@@ -224,7 +242,7 @@ bool _validRequest(Uri origin, ControlPlaneHttpRequest request) {
   for (final header in request.headers.entries) {
     if (!headerName.hasMatch(header.key) ||
         forbiddenHeaders.contains(header.key.toLowerCase()) ||
-        header.value.length > 8192 ||
+        header.value.length > 16 * 1024 ||
         header.value.runes.any((rune) => rune < 0x20 || rune == 0x7f)) {
       return false;
     }

@@ -23,6 +23,18 @@ void main() {
       request.matches(_metadata(projectId: '5123456789abcdef0123456789abcdef')),
       isFalse,
     );
+    expect(request.sameAs(_request()), isTrue);
+    expect(
+      request.sameAs(
+        SessionStartRequest(
+          sessionId: request.sessionId,
+          deviceId: request.deviceId,
+          agentId: request.agentId,
+          projectId: OpaqueId.parse('5123456789abcdef0123456789abcdef'),
+        ),
+      ),
+      isFalse,
+    );
   });
 }
 

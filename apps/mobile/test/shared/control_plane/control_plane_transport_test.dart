@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:coderoam/shared/control_plane/control_plane_transport.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-final _origin = Uri.parse('https://control.example');
+final _origin = ControlPlaneOrigin.parse(Uri.parse('https://control.example'));
 
 void main() {
   test('request and response own immutable byte and header snapshots', () {
@@ -133,11 +133,20 @@ void main() {
       Uri.parse('https://control.example/base'),
       Uri.parse('https://control.example?query=yes'),
     ]) {
-      expect(
-        () => IoControlPlaneTransport(origin: origin),
-        throwsArgumentError,
-      );
+      expect(() => ControlPlaneOrigin.parse(origin), throwsArgumentError);
     }
+  });
+
+  test('origin builds only relative endpoint paths', () {
+    expect(
+      _origin.endpoint('/v1/projects', queryParameters: {'limit': '50'}),
+      Uri.parse('https://control.example/v1/projects?limit=50'),
+    );
+    expect(() => _origin.endpoint('v1/projects'), throwsArgumentError);
+    expect(
+      () => _origin.endpoint('/v1/projects?limit=50'),
+      throwsArgumentError,
+    );
   });
 
   test('aborts a request that opens after the deadline', () async {

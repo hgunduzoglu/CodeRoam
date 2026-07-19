@@ -26,4 +26,10 @@ final class SessionStartRequest {
       metadata.deviceId == deviceId &&
       metadata.agentId == agentId &&
       metadata.projectId == projectId;
+
+  bool sameAs(SessionStartRequest other) =>
+      other.sessionId == sessionId &&
+      other.deviceId == deviceId &&
+      other.agentId == agentId &&
+      other.projectId == projectId;
 }
