@@ -26,6 +26,15 @@ type Session struct {
 	startedAt   time.Time
 }
 
+type Metadata struct {
+	ID          string
+	DeviceID    string
+	AgentID     string
+	ProjectID   string
+	RelayRegion string
+	StartedAt   time.Time
+}
+
 func NewSession(
 	actor auth.Actor,
 	encodedID string,
@@ -93,6 +102,18 @@ func newSession(
 func (session Session) OwnedBy(actor auth.Actor) bool {
 	actorID, ok := actor.UserID()
 	return ok && session.ownerID.String() != "" && session.ownerID == actorID
+}
+
+func (session Session) MetadataFor(actor auth.Actor) (Metadata, bool) {
+	if !session.OwnedBy(actor) || session.id.String() == "" || session.deviceID.String() == "" ||
+		session.agentID.String() == "" || session.projectID.String() == "" ||
+		!validRelayRegion(session.relayRegion) || session.startedAt.IsZero() {
+		return Metadata{}, false
+	}
+	return Metadata{
+		ID: session.id.String(), DeviceID: session.deviceID.String(), AgentID: session.agentID.String(),
+		ProjectID: session.projectID.String(), RelayRegion: session.relayRegion, StartedAt: session.startedAt,
+	}, true
 }
 
 func validRelayRegion(value string) bool {

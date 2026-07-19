@@ -256,6 +256,9 @@ authorization source or durable store.
   pairing secret, or engineering payload. The application layer must still perform all persisted
   authorization and storage in one transaction; M3/M4 retain ticket signing, replay protection,
   relay validation, and endpoint pairing.
+- 2026-07-19: Expose session metadata to transport only through `MetadataFor` with the exact owning
+  actor. The view contains canonical resource IDs, relay region, and start time only; foreign or zero
+  actors receive nothing, and no ticket, credential, cryptographic material, or capability is added.
 - 2026-07-19: Persist validated session metadata only through an existing `pgx.Tx`, under a fixed
   maximum deadline, without letting the repository begin or finish the transaction. Map the
   session primary-key conflict to a typed duplicate result, keep invalid/canceled calls SQL-free,
@@ -531,6 +534,11 @@ with no OpenAPI errors or warnings. Tests cover authenticated owner propagation,
 limits, duplicate and unknown queries, fixed error mapping, typed-nil dependencies, bounded response
 counts, invalid summary rejection, and absence of root-path output. Final adversarial review found no
 remaining issue after serialization-boundary revalidation was added.
+
+2026-07-19 session-metadata-view slice validation passed: 42 focused session cases under the race
+detector, focused `go vet`, and clean formatting/diffs. Owner, foreign-owner, and zero-value coverage
+proves the view exposes only canonical metadata to the exact actor. Security review found no issue
+and confirmed ticket, key, and authorization material remain outside the boundary.
 
 ## Recovery and rollback
 

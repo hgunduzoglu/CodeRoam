@@ -111,6 +111,39 @@ func TestNewSession(t *testing.T) {
 	}
 }
 
+func TestSessionMetadataForOwner(t *testing.T) {
+	owner := newSessionTestActor(t, "0123456789abcdef0123456789abcdef")
+	foreign := newSessionTestActor(t, "6123456789abcdef0123456789abcdef")
+	startedAt := time.Date(2026, time.July, 19, 23, 45, 0, 0, time.FixedZone("test", 2*60*60))
+	session, err := NewSession(
+		owner,
+		"1123456789abcdef0123456789abcdef",
+		"2123456789abcdef0123456789abcdef",
+		"3123456789abcdef0123456789abcdef",
+		"4123456789abcdef0123456789abcdef",
+		"eu-central-1",
+		startedAt,
+	)
+	if err != nil {
+		t.Fatalf("NewSession() error = %v", err)
+	}
+	view, ok := session.MetadataFor(owner)
+	if !ok || view.ID != "1123456789abcdef0123456789abcdef" ||
+		view.DeviceID != "2123456789abcdef0123456789abcdef" ||
+		view.AgentID != "3123456789abcdef0123456789abcdef" ||
+		view.ProjectID != "4123456789abcdef0123456789abcdef" ||
+		view.RelayRegion != "eu-central-1" || !view.StartedAt.Equal(startedAt) ||
+		view.StartedAt.Location() != time.UTC {
+		t.Fatalf("MetadataFor(owner) = (%+v, %t)", view, ok)
+	}
+	if view, ok := session.MetadataFor(foreign); ok || view != (Metadata{}) {
+		t.Fatalf("MetadataFor(foreign) = (%+v, %t)", view, ok)
+	}
+	if view, ok := (Session{}).MetadataFor(owner); ok || view != (Metadata{}) {
+		t.Fatalf("zero MetadataFor(owner) = (%+v, %t)", view, ok)
+	}
+}
+
 func newSessionTestActor(t *testing.T, encodedID string) auth.Actor {
 	t.Helper()
 	user, err := auth.NewUser(
