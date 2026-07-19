@@ -13,6 +13,10 @@ if [[ "${compose[*]}" != "${expected_compose[*]}" ]]; then
   echo "smoke test does not use the isolated Compose project" >&2
   exit 1
 fi
+if [[ "$migration_ledger_query" != *"ORDER BY scope, version"* ]]; then
+  echo "smoke migration ledger query does not order multiple scope versions" >&2
+  exit 1
+fi
 
 curl() {
   return 7

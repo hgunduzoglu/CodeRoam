@@ -23,7 +23,8 @@ integration. Those remain assigned to later milestones.
 - The control plane currently exposes only `/healthz`; no authentication provider or transport is
   wired at runtime.
 - Starter SQL runs through the transactional migration ledger, and the auth module now owns a
-  PostgreSQL repository for validated users with typed duplicate and not-found failures.
+  PostgreSQL repository for validated users with typed duplicate and not-found failures. It also
+  owns exact, case-sensitive OIDC issuer/subject bindings without treating email as identity.
 - The auth application service accepts bounded opaque evidence only through an injected verifier,
   re-resolves the verified user in PostgreSQL, and issues an opaque actor on exact identity match.
 - The device module now validates mobile identity metadata and X25519 public keys, binds new devices
@@ -48,8 +49,9 @@ integration. Those remain assigned to later milestones.
 - The worker runtime now drains the bounded outbox processor with the closed M2 revocation handler,
   retry-safe transaction ownership, and graceful pool shutdown. Relay-session termination remains
   an M4 replacement because M2 creates no relay session.
-- Authentication-provider/bootstrap behavior is not specified, so no provider-specific login flow
-  will be invented inside an ownership slice.
+- Production authentication uses generic OIDC Authorization Code with PKCE: the mobile app has no
+  client secret, the backend validates issuer, audience, signature, time claims, and exact subject,
+  and registered device identity remains separate from account identity.
 - The provider-neutral HTTP boundary accepts one Bearer credential as opaque verification evidence,
   exposes only a verified nonzero actor to handlers, and returns fixed credential-free JSON errors;
   runtime provider composition remains blocked on the approved bootstrap decision.
@@ -106,6 +108,7 @@ authorization source or durable store.
 - [x] Add auth repository integration coverage.
 - [x] Add the auth application service and fail-closed actor boundary.
 - [x] Add provider-neutral authenticated REST/OpenAPI behavior.
+- [x] Add exact auth-owned OIDC issuer/subject identity bindings.
 - [ ] Wire an approved authentication adapter into the control-plane runtime.
 - [x] Add the device identity and revocation domain contract.
 - [x] Add the metadata-only transactional outbox enqueue primitive.
@@ -168,6 +171,11 @@ authorization source or durable store.
   request context key. Reject duplicate/coalesced or malformed credentials before verification and
   return fixed JSON error categories without evidence or dependency details. Runtime composition
   still requires the approved identity provider/bootstrap adapter.
+- 2026-07-20: Use generic OIDC Authorization Code with PKCE for production account authentication.
+  Mobile is a public client with no embedded client secret; the backend validates the configured
+  HTTPS issuer, audience, signature, and temporal claims before resolving the exact case-sensitive
+  `(issuer, subject)` pair through auth-owned persistence. Never infer account identity from email,
+  and keep registered device identity and trust independent from the OIDC account identifier.
 - 2026-07-17: Require an authenticated actor to register or revoke a device. Accept only canonical
   opaque IDs, bounded names, explicit iOS/iPadOS/Android platforms, initialized X25519 public keys,
   and nonzero server-owned pairing times. Active-device authorization requires the exact owning
@@ -611,6 +619,13 @@ migration, repeat-start, worker, and health checks passed. Protocol contracts di
 M0 editor/terminal touch behavior changed, so protocol regeneration and physical-device touch-matrix
 retesting were not applicable to this closure slice.
 
+2026-07-20 OIDC-identity-binding slice validation passed: 54 focused auth cases normally and under
+the race detector, focused `go vet`, ShellCheck, Bash syntax, the smoke-harness regression, and the
+full PostgreSQL 17/Redis Compose infrastructure gate. Integration coverage proves exact
+case-sensitive issuer/subject lookup, duplicate-rebind rejection, missing-user rollback recovery,
+repeatable forward migration, and deterministic multi-version ledger ordering. The empty-query
+issuer edge case found in adversarial review was fixed, and final security re-review was clean.
+
 ## Recovery and rollback
 
 Code slices remain independent commits on the M2 branch. Forward migrations must be compatible
@@ -626,10 +641,10 @@ not a production rollback procedure.
 
 ## Open risks
 
-- The authentication bootstrap/provider is not specified and requires an explicit product decision
-  before a production login endpoint can be completed.
-- The mobile app likewise needs an approved authentication-evidence source and stable registered
-  device-ID source before `ControlPlaneShell` can replace the M0 local harness in `main.dart`.
+- The approved generic OIDC design still needs a pinned verifier dependency, bounded runtime
+  configuration, provider registration, and production composition before login can be exercised.
+- The mobile app still needs the approved PKCE flow implemented plus a stable registered device-ID
+  source before `ControlPlaneShell` can replace the M0 local harness in `main.dart`.
 - Public-key fingerprint encoding must be fixed with the M3 pairing contract before device
   persistence is exposed to clients.
 - Session signing and relay ticket cryptography belong to M3/M4; M2 must not ship a placeholder

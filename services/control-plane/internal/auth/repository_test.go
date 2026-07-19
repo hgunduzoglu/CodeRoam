@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -41,6 +42,16 @@ func TestRepositoryRejectsZeroDomainValuesBeforeQuery(t *testing.T) {
 	}
 	if _, err := repository.FindByID(context.Background(), UserID{}); !errors.Is(err, ErrInvalidUser) {
 		t.Fatalf("FindByID() error = %v, want ErrInvalidUser", err)
+	}
+	if err := repository.LinkOIDCIdentity(
+		context.Background(), OIDCIdentity{}, UserID{}, time.Time{},
+	); !errors.Is(err, ErrInvalidOIDCIdentity) {
+		t.Fatalf("LinkOIDCIdentity() error = %v, want ErrInvalidOIDCIdentity", err)
+	}
+	if _, err := repository.FindUserIDByOIDCIdentity(
+		context.Background(), OIDCIdentity{},
+	); !errors.Is(err, ErrInvalidOIDCIdentity) {
+		t.Fatalf("FindUserIDByOIDCIdentity() error = %v, want ErrInvalidOIDCIdentity", err)
 	}
 	if database.called {
 		t.Fatal("repository queried the database for an invalid domain value")

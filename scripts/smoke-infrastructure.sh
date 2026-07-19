@@ -2,6 +2,7 @@
 set -euo pipefail
 
 compose=(docker compose --project-name coderoam-m1-smoke -f deployments/compose/docker-compose.yml)
+migration_ledger_query="SELECT string_agg(scope || ':' || version, ',' ORDER BY scope, version) FROM coderoam_meta.schema_migrations"
 resources_started=false
 succeeded=false
 
@@ -50,8 +51,8 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   POSTGRES_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' ./scripts/migrate.sh
   POSTGRES_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' ./scripts/migrate.sh
   applied_migrations="$("${compose[@]}" exec -T postgres psql -U postgres -d coderoam -Atc \
-    "SELECT string_agg(scope || ':' || version, ',' ORDER BY scope) FROM coderoam_meta.schema_migrations")"
-  expected_migrations='auth:1,device:1,integration:1,outbox:1,preview:1,runbook:1,session:1,workspace:1'
+    "$migration_ledger_query")"
+  expected_migrations='auth:1,auth:2,device:1,integration:1,outbox:1,preview:1,runbook:1,session:1,workspace:1'
   if [[ "$applied_migrations" != "$expected_migrations" ]]; then
     echo "unexpected migration ledger: $applied_migrations" >&2
     exit 1
