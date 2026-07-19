@@ -57,6 +57,60 @@ func TestRepositoryCreateIntegration(t *testing.T) {
 	}
 	assertStoredSession(t, ctx, pool, committed)
 
+	idempotentRequest, err := NewSession(
+		owner, committed.id.String(), committed.deviceID.String(), committed.agentID.String(),
+		committed.projectID.String(), committed.relayRegion, committed.startedAt.Add(time.Hour),
+	)
+	if err != nil {
+		t.Fatalf("NewSession(idempotent request) error = %v", err)
+	}
+	idempotentTx := beginSessionIntegrationTx(t, ctx, pool, "idempotent")
+	persisted, err := repository.CreateOrGet(ctx, idempotentTx, idempotentRequest)
+	if err != nil {
+		t.Fatalf("CreateOrGet(idempotent) error = %v", err)
+	}
+	if persisted.id != committed.id || !persisted.startedAt.Equal(committed.startedAt) {
+		t.Fatal("CreateOrGet(idempotent) did not return the first stored session")
+	}
+	if err := idempotentTx.Commit(ctx); err != nil {
+		t.Fatalf("commit idempotent retry: %v", err)
+	}
+	assertSessionRowCount(t, ctx, pool, committed.id.String(), 1)
+
+	mismatchRequest, err := NewSession(
+		owner, committed.id.String(), committed.deviceID.String(), committed.agentID.String(),
+		newSessionRepositoryIntegrationID(t), committed.relayRegion, committed.startedAt,
+	)
+	if err != nil {
+		t.Fatalf("NewSession(mismatch request) error = %v", err)
+	}
+	mismatchTx := beginSessionIntegrationTx(t, ctx, pool, "mismatch")
+	if _, err := repository.CreateOrGet(
+		ctx, mismatchTx, mismatchRequest,
+	); !errors.Is(err, ErrSessionAccessDenied) {
+		t.Fatalf("CreateOrGet(mismatch) error = %v, want ErrSessionAccessDenied", err)
+	}
+	if _, err := mismatchTx.Exec(ctx, `SELECT 1`); err != nil {
+		t.Fatalf("idempotency mismatch made caller transaction unusable: %v", err)
+	}
+	rollbackSessionIntegrationTx(t, mismatchTx, "mismatch")
+
+	foreign := newSessionTestActor(t, "1123456789abcdef0123456789abcdef")
+	foreignRequest, err := NewSession(
+		foreign, committed.id.String(), committed.deviceID.String(), committed.agentID.String(),
+		committed.projectID.String(), committed.relayRegion, committed.startedAt,
+	)
+	if err != nil {
+		t.Fatalf("NewSession(foreign request) error = %v", err)
+	}
+	foreignTx := beginSessionIntegrationTx(t, ctx, pool, "foreign")
+	if _, err := repository.CreateOrGet(
+		ctx, foreignTx, foreignRequest,
+	); !errors.Is(err, ErrSessionAccessDenied) {
+		t.Fatalf("CreateOrGet(foreign collision) error = %v, want ErrSessionAccessDenied", err)
+	}
+	rollbackSessionIntegrationTx(t, foreignTx, "foreign")
+
 	duplicateTx := beginSessionIntegrationTx(t, ctx, pool, "duplicate")
 	if err := repository.Create(ctx, duplicateTx, committed); !errors.Is(err, ErrSessionAlreadyExists) {
 		t.Fatalf("Create(duplicate) error = %v, want ErrSessionAlreadyExists", err)
@@ -142,6 +196,15 @@ func newSessionIntegrationMetadata(t *testing.T, owner auth.Actor, startedAt tim
 	return metadata
 }
 
+func newSessionRepositoryIntegrationID(t *testing.T) string {
+	t.Helper()
+	value, err := ids.New()
+	if err != nil {
+		t.Fatalf("ids.New() error = %v", err)
+	}
+	return value.String()
+}
+
 func beginSessionIntegrationTx(
 	t *testing.T,
 	ctx context.Context,
@@ -199,6 +262,25 @@ func assertSessionMissing(t *testing.T, ctx context.Context, reader sessionRowRe
 	err := reader.QueryRow(ctx, `SELECT id FROM session.sessions WHERE id = $1`, sessionID).Scan(&storedID)
 	if !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("session %s lookup error = %v, want pgx.ErrNoRows", sessionID, err)
+	}
+}
+
+func assertSessionRowCount(
+	t *testing.T,
+	ctx context.Context,
+	reader sessionRowReader,
+	sessionID string,
+	want int,
+) {
+	t.Helper()
+	var count int
+	if err := reader.QueryRow(
+		ctx, `SELECT count(*) FROM session.sessions WHERE id = $1`, sessionID,
+	).Scan(&count); err != nil {
+		t.Fatalf("count session rows: %v", err)
+	}
+	if count != want {
+		t.Fatalf("session %s row count = %d, want %d", sessionID, count, want)
 	}
 }
 

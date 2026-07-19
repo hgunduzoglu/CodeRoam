@@ -39,6 +39,23 @@ func NewSession(
 	if !ok {
 		return Session{}, ErrSessionAccessDenied
 	}
+	return newSession(
+		ownerID, encodedID, encodedDeviceID, encodedAgentID, encodedProjectID, relayRegion, startedAt,
+	)
+}
+
+func newSession(
+	ownerID auth.UserID,
+	encodedID string,
+	encodedDeviceID string,
+	encodedAgentID string,
+	encodedProjectID string,
+	relayRegion string,
+	startedAt time.Time,
+) (Session, error) {
+	if ownerID.String() == "" {
+		return Session{}, ErrSessionAccessDenied
+	}
 	sessionID, err := ids.Parse(encodedID)
 	if err != nil {
 		return Session{}, fmt.Errorf("%w: id", ErrInvalidSession)

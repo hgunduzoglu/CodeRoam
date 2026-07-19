@@ -38,8 +38,9 @@ integration. Those remain assigned to later milestones.
 - The outbox module now exposes closed metadata-only event kinds and can enqueue a fixed empty JSON
   event only inside a caller-owned PostgreSQL transaction.
 - The session module now defines bounded owner/device/agent/project/region metadata without exposing
-  an unsigned placeholder relay ticket or carrying secrets and engineering payloads, and can insert
-  that metadata only inside a caller-owned PostgreSQL transaction.
+  an unsigned placeholder relay ticket or carrying secrets and engineering payloads. Its service
+  authorizes the active device, active agent, and exact agent-bound project, then idempotently
+  persists the metadata in one bounded transaction using a caller-stable opaque session ID.
 - The control-plane runtime opens and verifies a bounded PostgreSQL pool before serving, drains HTTP
   requests during shutdown, and closes the pool after the server stops.
 - The worker emits a heartbeat but does not claim or process outbox events.
@@ -105,7 +106,7 @@ authorization source or durable store.
 - [x] Add the persisted owner- and agent-bound project authorization boundary.
 - [x] Add the bounded session metadata domain boundary.
 - [x] Persist validated session metadata inside a caller-owned transaction.
-- [ ] Implement session authorization and ticket metadata.
+- [x] Implement session authorization and retry-stable session metadata.
 - [ ] Implement worker outbox processing.
 - [ ] Integrate the Flutter M2 surface.
 - [ ] Run final validation and record M2 acceptance.
@@ -234,8 +235,16 @@ authorization source or durable store.
   maximum deadline, without letting the repository begin or finish the transaction. Map the
   session primary-key conflict to a typed duplicate result, keep invalid/canceled calls SQL-free,
   and preserve rollback/commit visibility. Emit no outbox event because this slice creates no relay
-  credential or external side effect. The next application-service slice must perform device,
-  agent, and exact project authorization before calling `Create` in this same transaction.
+  credential or external side effect. Keep `Create` as the low-level typed-conflict primitive while
+  session issuance uses the retry-safe `CreateOrGet` path after authorization in the same transaction.
+- 2026-07-19: Start a metadata-only session only after the owning device, active agent, and exact
+  agent-bound project authorize the same actor in one bounded transaction. Require a caller-stable
+  canonical opaque session ID so a retry never invents a second logical session. Insert or return an
+  existing row only when owner, device, agent, project, and server-selected region match exactly;
+  foreign, mismatched, ended, or corrupt reuse fails closed. Return a typed commit-outcome-unknown
+  error on every commit failure and require retry with the same ID and inputs. Device and agent
+  shared authorization locks remain held through metadata commit, linearizing issuance against
+  exclusive revocation. This creates no ticket, credential, outbox event, Redis state, or payload.
 
 ## Validation
 
@@ -409,6 +418,17 @@ commit, typed duplicate rejection, SQL-free invalid and canceled calls, bounded 
 contention, and successful retry. Adversarial review found one Low fixture-ownership gap; proving
 each random committed ID absent before registering exact-ID cleanup resolved it, and re-review found
 no remaining persistence, transaction-ownership, or cleanup issue.
+
+2026-07-19 atomic-session-start slice validation passed: 41 focused session cases and 172
+control-plane tests under the race detector, focused and module `go vet`, module verification,
+vulnerability scanning, ShellCheck, Bash syntax and smoke-harness regression checks, PostgreSQL 17
+integration, and the full repository format/lint/test/build and Compose infrastructure gates.
+Integration coverage proves one ordered transaction across device, agent, exact project, and
+session repositories; uniform denial and rollback; device and agent revocation linearization; exact
+retry reconciliation; and one-row recovery when a real commit succeeds but reports an error.
+Adversarial review found a Medium ambiguous-commit retry risk and a Low broad fixture-cleanup risk.
+Caller-stable IDs, owner-scoped exact `CreateOrGet`, a typed unknown-outcome result, the committed-
+but-error regression, and exact typed cleanup resolved both; re-review found no remaining issue.
 
 ## Recovery and rollback
 
