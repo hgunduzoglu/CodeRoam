@@ -1,3 +1,5 @@
+import 'dart:math';
+
 final class OpaqueId {
   const OpaqueId._(this.value);
 
@@ -8,6 +10,19 @@ final class OpaqueId {
       throw const FormatException('Control-plane id is invalid.');
     }
     return OpaqueId._(value);
+  }
+
+  factory OpaqueId.generate() {
+    final random = Random.secure();
+    const hex = '0123456789abcdef';
+    final encoded = StringBuffer();
+    for (var index = 0; index < 16; index++) {
+      final byte = random.nextInt(256);
+      encoded
+        ..write(hex[byte >> 4])
+        ..write(hex[byte & 0x0f]);
+    }
+    return OpaqueId._(encoded.toString());
   }
 
   final String value;

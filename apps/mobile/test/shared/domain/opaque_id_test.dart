@@ -24,4 +24,13 @@ void main() {
       expect(() => OpaqueId.parse(value), throwsFormatException);
     }
   });
+
+  test('generates parseable cryptographically random opaque ids', () {
+    final generated = List.generate(32, (_) => OpaqueId.generate());
+
+    expect(generated.map((id) => id.value).toSet(), hasLength(32));
+    for (final id in generated) {
+      expect(OpaqueId.parse(id.value), id);
+    }
+  });
 }
