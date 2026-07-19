@@ -50,6 +50,9 @@ integration. Those remain assigned to later milestones.
   runtime processing is not wired yet.
 - Authentication-provider/bootstrap behavior is not specified, so no provider-specific login flow
   will be invented inside an ownership slice.
+- The provider-neutral HTTP boundary accepts one Bearer credential as opaque verification evidence,
+  exposes only a verified nonzero actor to handlers, and returns fixed credential-free JSON errors;
+  runtime provider composition remains blocked on the approved bootstrap decision.
 
 ## Design
 
@@ -149,6 +152,11 @@ authorization source or durable store.
   root. The application service validates bounded evidence, maps rejected/zero/missing/mismatched
   identities to one unauthenticated result, sanitizes dependency failures, and issues an actor only
   after the verified ID exactly matches a repository user. A zero actor yields no usable user ID.
+- 2026-07-19: Keep HTTP authentication provider-neutral: accept exactly one RFC 6750 Bearer token as
+  opaque verification evidence, call the auth service, and store only its nonzero actor in a private
+  request context key. Reject duplicate/coalesced or malformed credentials before verification and
+  return fixed JSON error categories without evidence or dependency details. Runtime composition
+  still requires the approved identity provider/bootstrap adapter.
 - 2026-07-17: Require an authenticated actor to register or revoke a device. Accept only canonical
   opaque IDs, bounded names, explicit iOS/iPadOS/Android platforms, initialized X25519 public keys,
   and nonzero server-owned pairing times. Active-device authorization requires the exact owning
@@ -490,6 +498,13 @@ pool close after cancellation, immediate draining, clean shutdown after processo
 closed M2 handler boundary. Runtime integration proves the enabled worker opens its own pool,
 claims a real revocation event, persists one successful attempt, and shuts down cleanly; the Compose
 worker remains explicitly disabled while fixture-owning integration packages run.
+
+2026-07-19 HTTP-authentication-boundary slice validation passed: 67 focused auth/transport cases
+under the race detector, focused `go vet`, and 197 control-plane cases under the race detector plus
+full control-plane vet, `govulncheck`, and module verification. Adversarial review found and fixed
+coalesced/ambiguous Bearer evidence, typed-nil dependency panics, and padding-only tokens. The final
+boundary rejects those cases before verification, exposes no credential/provider detail, and never
+lets a zero actor reach a protected handler.
 
 ## Recovery and rollback
 
