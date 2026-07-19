@@ -112,6 +112,7 @@ authorization source or durable store.
 - [x] Add exact auth-owned OIDC issuer/subject identity bindings.
 - [x] Add the fail-closed verified-claims-to-local-user adapter.
 - [x] Add bounded explicit OIDC verifier trust-anchor configuration.
+- [x] Add signed OIDC ID-token verification with bounded shared JWKS retrieval.
 - [ ] Wire an approved authentication adapter into the control-plane runtime.
 - [x] Add the device identity and revocation domain contract.
 - [x] Add the metadata-only transactional outbox enqueue primitive.
@@ -187,6 +188,15 @@ authorization source or durable store.
   explicit HTTPS JWKS URL, and one allow-listed asymmetric signing algorithm. Preserve the issuer's
   exact spelling as its OIDC identity namespace; reject invalid hosts and empty, zero, or
   out-of-range ports rather than normalizing trust anchors into a different identifier.
+- 2026-07-20: Accept only compact signed ID tokens whose protected `typ` is exactly `JWT`; reject
+  access-token and ambiguous JWT types before identity verification. Pin one configured asymmetric
+  algorithm, require RSA keys of at least 2048 bits or the exact ECDSA curve for the selected
+  algorithm, and require a structurally valid public signing key in every accepted JWKS response.
+  Filter disallowed keys before the verifier can use them. Bound exact-URL JWKS reads and share the
+  validated response through a URL-and-algorithm-keyed cache with a 30-second refresh interval so
+  attacker-selected unknown key IDs cannot amplify provider traffic or starve a cold verifier.
+  Consult that cache on every signature verification so even a locally known key must be refreshed
+  within 30 seconds; failed refreshes clear stale key material and fail closed.
 - 2026-07-17: Require an authenticated actor to register or revoke a device. Accept only canonical
   opaque IDs, bounded names, explicit iOS/iPadOS/Android platforms, initialized X25519 public keys,
   and nonzero server-owned pairing times. Active-device authorization requires the exact owning
@@ -650,6 +660,20 @@ issuer/audience/JWKS configuration, HTTPS-only endpoints, host and port validati
 asymmetric-only algorithm allow-list. Missing-host and invalid-port findings from adversarial
 review were fixed; URL size and UTF-8 limits are enforced before parsing.
 
+2026-07-20 signed OIDC-ID-token validation passed: 178 focused auth cases and 396 full control-plane
+cases under the race detector, focused and full `go vet`, `govulncheck ./...`, `go mod verify`, and
+`git diff --check`. Real TLS JWKS coverage proves signature and exact issuer/audience/subject/time
+validation, exact protected ID-token type, sanitized provider failures, structurally valid strong
+algorithm-compatible public keys, removal of every disallowed key before verification, bounded
+response I/O, and one validated URL-and-algorithm-keyed response shared across cold verifier caches.
+Adversarial findings for access-token confusion, unknown-key refresh amplification, generic-JSON
+misclassification, weak or mixed-strength key sets, ECDSA curve mismatch, per-instance cooldowns,
+and cold-verifier starvation were fixed. A removed-key freshness bypass in the dependency's private
+cache was eliminated by verifying through the shared freshness boundary on every token; rotation
+coverage proves removed keys fail and replacement keys succeed after refresh, while a failed
+refresh clears stale keys and remains unavailable without another cooldown fetch. Final security
+re-review found no remaining actionable issue.
+
 ## Recovery and rollback
 
 Code slices remain independent commits on the M2 branch. Forward migrations must be compatible
@@ -665,8 +689,8 @@ not a production rollback procedure.
 
 ## Open risks
 
-- The approved generic OIDC design still needs a pinned verifier dependency, bounded runtime
-  configuration, provider registration, and production composition before login can be exercised.
+- The approved generic OIDC design still needs bounded environment loading, provider registration,
+  and production composition before login can be exercised.
 - The mobile app still needs the approved PKCE flow implemented plus a stable registered device-ID
   source before `ControlPlaneShell` can replace the M0 local harness in `main.dart`.
 - Public-key fingerprint encoding must be fixed with the M3 pairing contract before device
