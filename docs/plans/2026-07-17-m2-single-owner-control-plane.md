@@ -245,6 +245,10 @@ authorization source or durable store.
   error on every commit failure and require retry with the same ID and inputs. Device and agent
   shared authorization locks remain held through metadata commit, linearizing issuance against
   exclusive revocation. This creates no ticket, credential, outbox event, Redis state, or payload.
+- 2026-07-19: Establish the worker's closed outbox delivery boundary before adding SQL claiming.
+  Accept only canonical opaque event and aggregate IDs, exact device/agent revocation kind pairs,
+  an exactly empty JSON payload, a nonzero availability time, and a nonnegative attempt count.
+  Reject unknown, mismatched, malformed, or payload-bearing rows without exposing their contents.
 
 ## Validation
 
@@ -429,6 +433,13 @@ retry reconciliation; and one-row recovery when a real commit succeeds but repor
 Adversarial review found a Medium ambiguous-commit retry risk and a Low broad fixture-cleanup risk.
 Caller-stable IDs, owner-scoped exact `CreateOrGet`, a typed unknown-outcome result, the committed-
 but-error regression, and exact typed cleanup resolved both; re-review found no remaining issue.
+
+2026-07-19 worker-outbox-domain slice validation passed: 10 worker cases under the race detector,
+focused `go vet`, module verification, and clean formatting/diffs. Negative coverage rejects invalid
+event or aggregate IDs, unknown or mismatched event/aggregate kinds, nonempty payloads, zero
+availability times, and negative attempt counts. No persistence, external side effect, logging,
+runtime dependency beyond the existing opaque-ID primitive, or engineering-payload surface was
+introduced.
 
 ## Recovery and rollback
 
