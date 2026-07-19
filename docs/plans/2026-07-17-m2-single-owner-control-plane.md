@@ -111,6 +111,7 @@ authorization source or durable store.
 - [x] Add provider-neutral authenticated REST/OpenAPI behavior.
 - [x] Add exact auth-owned OIDC issuer/subject identity bindings.
 - [x] Add the fail-closed verified-claims-to-local-user adapter.
+- [x] Add bounded explicit OIDC verifier trust-anchor configuration.
 - [ ] Wire an approved authentication adapter into the control-plane runtime.
 - [x] Add the device identity and revocation domain contract.
 - [x] Add the metadata-only transactional outbox enqueue primitive.
@@ -182,6 +183,10 @@ authorization source or durable store.
   adapter accepts only already-verified issuer/subject claims, reconstructs the bounded exact
   identity, maps an unlinked identity to the same rejection as an invalid token, and preserves
   dependency failures for the auth service to sanitize as unavailable.
+- 2026-07-20: Configure OIDC verification with one exact HTTPS issuer, exact bounded audience,
+  explicit HTTPS JWKS URL, and one allow-listed asymmetric signing algorithm. Preserve the issuer's
+  exact spelling as its OIDC identity namespace; reject invalid hosts and empty, zero, or
+  out-of-range ports rather than normalizing trust anchors into a different identifier.
 - 2026-07-17: Require an authenticated actor to register or revoke a device. Accept only canonical
   opaque IDs, bounded names, explicit iOS/iPadOS/Android platforms, initialized X25519 public keys,
   and nonzero server-owned pairing times. Active-device authorization requires the exact owning
@@ -638,6 +643,12 @@ the race detector, 287 full control-plane cases under the race detector, full co
 invalid-token and unlinked-identity rejection, cancellation propagation, sanitized downstream
 failure handling, and fail-closed plain/typed-nil composition. The typed-nil panic path found in
 adversarial review was fixed, and final security re-review was clean.
+
+2026-07-20 OIDC-verifier-config slice validation passed: 105 focused auth cases normally and under
+the race detector, focused `go vet`, and `git diff --check`. Coverage proves bounded exact
+issuer/audience/JWKS configuration, HTTPS-only endpoints, host and port validation, and an explicit
+asymmetric-only algorithm allow-list. Missing-host and invalid-port findings from adversarial
+review were fixed; URL size and UTF-8 limits are enforced before parsing.
 
 ## Recovery and rollback
 

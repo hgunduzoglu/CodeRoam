@@ -25,9 +25,15 @@ func TestNewOIDCIdentityRejectsInvalidBoundaries(t *testing.T) {
 		issuer  string
 		subject string
 	}{
-		"empty issuer":       {issuer: "", subject: "subject"},
-		"insecure issuer":    {issuer: "http://identity.example", subject: "subject"},
-		"issuer credentials": {issuer: "https://user@identity.example", subject: "subject"},
+		"empty issuer":        {issuer: "", subject: "subject"},
+		"insecure issuer":     {issuer: "http://identity.example", subject: "subject"},
+		"issuer without host": {issuer: "https://:443/realm", subject: "subject"},
+		"issuer credentials":  {issuer: "https://user@identity.example", subject: "subject"},
+		"empty issuer port":   {issuer: "https://identity.example:/realm", subject: "subject"},
+		"invalid issuer port": {
+			issuer: "https://identity.example:99999/realm", subject: "subject",
+		},
+		"zero issuer port":   {issuer: "https://identity.example:0/realm", subject: "subject"},
 		"empty issuer query": {issuer: "https://identity.example?", subject: "subject"},
 		"issuer query":       {issuer: "https://identity.example?tenant=one", subject: "subject"},
 		"issuer fragment":    {issuer: "https://identity.example#tenant", subject: "subject"},

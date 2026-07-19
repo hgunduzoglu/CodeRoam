@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -22,11 +23,13 @@ type OIDCIdentity struct {
 }
 
 func NewOIDCIdentity(issuer, subject string) (OIDCIdentity, error) {
+	if len(issuer) == 0 || len(issuer) > maxOIDCIssuerBytes || !utf8.ValidString(issuer) {
+		return OIDCIdentity{}, fmt.Errorf("%w: issuer", ErrInvalidOIDCIdentity)
+	}
 	parsedIssuer, err := url.Parse(issuer)
-	if err != nil || len(issuer) == 0 || len(issuer) > maxOIDCIssuerBytes ||
-		!utf8.ValidString(issuer) || parsedIssuer.Scheme != "https" || parsedIssuer.Host == "" ||
+	if err != nil || parsedIssuer.Scheme != "https" || parsedIssuer.Hostname() == "" ||
 		parsedIssuer.User != nil || parsedIssuer.ForceQuery || parsedIssuer.RawQuery != "" ||
-		parsedIssuer.Fragment != "" ||
+		parsedIssuer.Fragment != "" || !validOIDCPort(parsedIssuer) ||
 		parsedIssuer.String() != issuer {
 		return OIDCIdentity{}, fmt.Errorf("%w: issuer", ErrInvalidOIDCIdentity)
 	}
@@ -35,6 +38,18 @@ func NewOIDCIdentity(issuer, subject string) (OIDCIdentity, error) {
 		return OIDCIdentity{}, fmt.Errorf("%w: subject", ErrInvalidOIDCIdentity)
 	}
 	return OIDCIdentity{issuer: issuer, subject: subject}, nil
+}
+
+func validOIDCPort(parsed *url.URL) bool {
+	if parsed == nil || strings.HasSuffix(parsed.Host, ":") {
+		return false
+	}
+	port := parsed.Port()
+	if port == "" {
+		return true
+	}
+	number, err := strconv.ParseUint(port, 10, 16)
+	return err == nil && number != 0
 }
 
 func (identity OIDCIdentity) valid() bool {
