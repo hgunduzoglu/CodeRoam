@@ -45,16 +45,21 @@ integration. Those remain assigned to later milestones.
   requests during shutdown, and closes the pool after the server stops.
 - The worker runtime owns a bounded PostgreSQL pool and drains retry-safe, duplicate-delivery-safe
   claim/handler/finish transactions until graceful cancellation.
-- The worker's outbox repository can claim one due event with `FOR UPDATE SKIP LOCKED` and record a
-  closed completed, delayed-retry, or permanent-discard outcome inside its caller's transaction;
-  runtime processing is not wired yet.
+- The worker runtime now drains the bounded outbox processor with the closed M2 revocation handler,
+  retry-safe transaction ownership, and graceful pool shutdown. Relay-session termination remains
+  an M4 replacement because M2 creates no relay session.
 - Authentication-provider/bootstrap behavior is not specified, so no provider-specific login flow
   will be invented inside an ownership slice.
 - The provider-neutral HTTP boundary accepts one Bearer credential as opaque verification evidence,
   exposes only a verified nonzero actor to handlers, and returns fixed credential-free JSON errors;
   runtime provider composition remains blocked on the approved bootstrap decision.
-- The authenticated `GET /v1/projects` handler and OpenAPI 3.1 contract expose a bounded owner-only
-  project summary list; they remain unwired at runtime until the authentication adapter is approved.
+- The authenticated `GET /v1/projects` and metadata-only `POST /v1/sessions` routes share one
+  fail-closed handler composition and an OpenAPI 3.1 contract; runtime activation remains blocked
+  until the authentication adapter is approved.
+- Flutter now has strict metadata models, a same-origin bounded HTTPS transport, a provider-neutral
+  authenticated REST repository, touch project/session surfaces, and a lifecycle-owned composition
+  shell. Production app activation still needs the approved authentication evidence and stable
+  registered-device bootstrap sources.
 
 ## Design
 
@@ -100,13 +105,14 @@ authorization source or durable store.
 - [x] Route the starter migrations through the ledger.
 - [x] Add auth repository integration coverage.
 - [x] Add the auth application service and fail-closed actor boundary.
-- [ ] Wire an approved authentication adapter and REST/OpenAPI behavior.
+- [x] Add provider-neutral authenticated REST/OpenAPI behavior.
+- [ ] Wire an approved authentication adapter into the control-plane runtime.
 - [x] Add the device identity and revocation domain contract.
 - [x] Add the metadata-only transactional outbox enqueue primitive.
 - [x] Implement persisted device revocation with atomic outbox behavior.
 - [x] Add the persisted active-device authorization boundary.
 - [ ] Implement device registration/listing persistence after the fingerprint contract is fixed.
-- [ ] Implement agents, environments, and projects.
+- [x] Implement agent, environment, and project domains plus persisted authorization/read behavior.
 - [x] Add the workspace agent identity and revocation domain boundary.
 - [x] Add the persisted active-agent authorization boundary.
 - [x] Implement persisted agent revocation with atomic outbox behavior.
@@ -117,8 +123,11 @@ authorization source or durable store.
 - [x] Persist validated session metadata inside a caller-owned transaction.
 - [x] Implement session authorization and retry-stable session metadata.
 - [x] Implement worker outbox processing.
-- [ ] Integrate the Flutter M2 surface.
-- [ ] Run final validation and record M2 acceptance.
+- [x] Integrate the provider-neutral Flutter M2 surface.
+- [ ] Activate the control-plane and mobile composition roots after authentication/device bootstrap
+  is approved.
+- [x] Run full repository validation for the completed M2 scope.
+- [ ] Record M2 acceptance after the blocked production composition is activated and exercised.
 
 ## Decisions
 
@@ -301,6 +310,17 @@ authorization source or durable store.
   and metadata-free, close the pool after cancellation, and fail startup on an invalid processing
   flag. M2 acknowledges the closed revocation event kinds because relay sessions do not exist; M4
   must replace that acknowledgement with active-session termination before enabling relay sessions.
+- 2026-07-20: Compose project and metadata-session routes behind one actor-authentication boundary.
+  Authentication runs before route-specific method rejection, typed-nil dependencies fail closed,
+  and the composition still requires a real verifier from the runtime bootstrap.
+- 2026-07-20: Keep the Flutter control-plane client provider-neutral and metadata-only. Pin one HTTPS
+  origin, reject redirects and unsafe headers, bound authentication evidence, deadlines, JSON depth,
+  and response bodies, preserve caller-stable session requests after ambiguous outcomes, and never
+  expose a relay ticket or capability.
+- 2026-07-20: Let the Flutter composition shell own repositories, transports, controllers, and
+  trust-bound routes. Changing origin, device, evidence provider, transport factory, or removing the
+  shell immediately revokes old controllers and closes transport state, then removes stale routes
+  after the current frame so late responses cannot reopen an old workspace.
 
 ## Validation
 
@@ -552,6 +572,39 @@ stable IDs, returned-ID reconciliation, fixed failures, outcome-unknown retry si
 metadata-only response with no ticket. Adversarial review's duplicate-key and missing-contract
 findings were fixed; final re-review found no remaining issue.
 
+2026-07-20 authenticated-handler-composition validation passed: 258 control-plane cases under the
+race detector plus focused `go vet`. Coverage proves authentication precedes method rejection,
+project/session routes share one trust boundary, and typed-nil dependencies fail closed. A missing
+auth-before-method regression identified in review was added; final re-review found no remaining
+issue.
+
+2026-07-20 Flutter metadata-and-surface validation passed: strict opaque IDs and UTC timestamps,
+bounded project/session metadata, immutable catalog selection, caller-stable ambiguous session
+retry, touch catalog/session screens, and explicit metadata-only local-workspace handoff are covered
+by unit and widget tests. Review findings about unbounded names and normalized invalid timestamps
+were fixed and re-reviewed cleanly.
+
+2026-07-20 Flutter transport-and-repository validation passed: focused transport/repository tests,
+the full mobile suite, and `flutter analyze`. Coverage proves a pinned same-origin HTTPS boundary,
+disabled redirects, immutable bounded bodies, total deadlines including late socket acquisition,
+strict duplicate-aware JSON, fixed credential-free failures, and exact unknown-outcome request
+retention. High and Medium review findings across origin pinning, mutable data, late requests,
+ambiguous outcomes, and duplicate keys were fixed; final re-reviews found no remaining issue.
+
+2026-07-20 Flutter-runtime-composition validation passed: 10 focused widget cases, 79 full mobile
+tests, and `flutter analyze`. Trust-input rotation and shell replacement are covered while routes are
+idle, in flight, outcome-unknown, metadata-ready, or displaying the local workspace. Old transport
+state closes exactly once, stale routes are removed, and late completions cannot reopen them. Two
+route-lifecycle findings were fixed; final security re-review was clean.
+
+2026-07-20 completed-scope final validation passed: `make fmt`, `make lint`, `make test`, `make build`,
+and `make test-infrastructure`. All Go modules formatted, vetted, and tested; Flutter analysis and 79
+tests passed; both WebView packages type-checked, tested, and built; every Go deployable and container
+image built; agent-skill mirrors were synchronized; and the PostgreSQL 17/Redis Compose smoke,
+migration, repeat-start, worker, and health checks passed. Protocol contracts did not change, and no
+M0 editor/terminal touch behavior changed, so protocol regeneration and physical-device touch-matrix
+retesting were not applicable to this closure slice.
+
 ## Recovery and rollback
 
 Code slices remain independent commits on the M2 branch. Forward migrations must be compatible
@@ -569,6 +622,8 @@ not a production rollback procedure.
 
 - The authentication bootstrap/provider is not specified and requires an explicit product decision
   before a production login endpoint can be completed.
+- The mobile app likewise needs an approved authentication-evidence source and stable registered
+  device-ID source before `ControlPlaneShell` can replace the M0 local harness in `main.dart`.
 - Public-key fingerprint encoding must be fixed with the M3 pairing contract before device
   persistence is exposed to clients.
 - Session signing and relay ticket cryptography belong to M3/M4; M2 must not ship a placeholder
