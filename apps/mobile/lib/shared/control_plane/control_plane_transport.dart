@@ -2,6 +2,9 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+typedef ControlPlaneRequestOpener =
+    Future<HttpClientRequest> Function(String method, Uri uri);
+
 final class ControlPlaneTransportException implements Exception {
   const ControlPlaneTransportException();
 }
@@ -13,12 +16,12 @@ final class ControlPlaneHttpRequest {
     Map<String, String> headers = const {},
     List<int> body = const [],
   }) : headers = Map.unmodifiable(headers),
-       body = Uint8List.fromList(body);
+       body = List.unmodifiable(body);
 
   final String method;
   final Uri uri;
   final Map<String, String> headers;
-  final Uint8List body;
+  final List<int> body;
 }
 
 final class ControlPlaneHttpResponse {
@@ -26,11 +29,11 @@ final class ControlPlaneHttpResponse {
     required this.statusCode,
     required this.contentType,
     required List<int> body,
-  }) : body = Uint8List.fromList(body);
+  }) : body = List.unmodifiable(body);
 
   final int statusCode;
   final String? contentType;
-  final Uint8List body;
+  final List<int> body;
 }
 
 abstract interface class ControlPlaneTransport {
@@ -40,12 +43,18 @@ abstract interface class ControlPlaneTransport {
 
 final class IoControlPlaneTransport implements ControlPlaneTransport {
   IoControlPlaneTransport({
+    required Uri origin,
     Duration timeout = const Duration(seconds: 10),
     int maxResponseBytes = 64 * 1024,
+    ControlPlaneRequestOpener? openRequest,
   }) : _timeout = timeout,
        _maxResponseBytes = maxResponseBytes,
+       _origin = origin,
+       _openRequest = openRequest,
        _client = HttpClient() {
-    if (timeout <= Duration.zero || maxResponseBytes < 1) {
+    if (!_validOrigin(origin) ||
+        timeout <= Duration.zero ||
+        maxResponseBytes < 1) {
       _client.close(force: true);
       throw ArgumentError('Control-plane transport bounds are invalid.');
     }
@@ -54,12 +63,14 @@ final class IoControlPlaneTransport implements ControlPlaneTransport {
 
   final Duration _timeout;
   final int _maxResponseBytes;
+  final Uri _origin;
+  final ControlPlaneRequestOpener? _openRequest;
   final HttpClient _client;
   bool _closed = false;
 
   @override
   Future<ControlPlaneHttpResponse> send(ControlPlaneHttpRequest request) async {
-    if (_closed || !_validRequest(request)) {
+    if (_closed || !_validRequest(_origin, request)) {
       throw const ControlPlaneTransportException();
     }
     final stopwatch = Stopwatch()..start();
@@ -72,10 +83,28 @@ final class IoControlPlaneTransport implements ControlPlaneTransport {
     }
 
     HttpClientRequest? pendingRequest;
+    var acceptOpenedRequest = true;
     try {
-      pendingRequest = await _client
-          .openUrl(request.method, request.uri)
-          .timeout(remaining());
+      final openFuture = (_openRequest ?? _client.openUrl)(
+        request.method,
+        request.uri,
+      );
+      openFuture.then<void>((opened) {
+        if (!acceptOpenedRequest || _closed) {
+          opened.abort();
+        }
+      }, onError: (Object _, StackTrace _) {});
+      pendingRequest = await openFuture.timeout(
+        remaining(),
+        onTimeout: () {
+          acceptOpenedRequest = false;
+          throw const ControlPlaneTransportException();
+        },
+      );
+      if (_closed) {
+        pendingRequest.abort();
+        throw const ControlPlaneTransportException();
+      }
       pendingRequest
         ..followRedirects = false
         ..maxRedirects = 0;
@@ -99,9 +128,11 @@ final class IoControlPlaneTransport implements ControlPlaneTransport {
         body: bytes,
       );
     } on ControlPlaneTransportException {
+      acceptOpenedRequest = false;
       pendingRequest?.abort();
       rethrow;
     } on Exception {
+      acceptOpenedRequest = false;
       pendingRequest?.abort();
       throw const ControlPlaneTransportException();
     }
@@ -158,14 +189,25 @@ Future<Uint8List> _readBoundedResponse(
   return completer.future;
 }
 
-bool _validRequest(ControlPlaneHttpRequest request) {
+bool _validOrigin(Uri origin) {
+  return origin.scheme == 'https' &&
+      origin.host.isNotEmpty &&
+      !origin.host.endsWith('.') &&
+      origin.userInfo.isEmpty &&
+      (origin.path.isEmpty || origin.path == '/') &&
+      !origin.hasQuery &&
+      origin.fragment.isEmpty;
+}
+
+bool _validRequest(Uri origin, ControlPlaneHttpRequest request) {
   if (request.method != 'GET' && request.method != 'POST') {
     return false;
   }
   final uri = request.uri;
   if (uri.toString().length > 2048 ||
-      uri.scheme != 'https' ||
-      uri.host.isEmpty ||
+      uri.scheme != origin.scheme ||
+      uri.host != origin.host ||
+      uri.port != origin.port ||
       uri.userInfo.isNotEmpty ||
       uri.fragment.isNotEmpty ||
       request.headers.length > 16 ||

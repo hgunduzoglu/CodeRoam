@@ -1,5 +1,10 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:coderoam/shared/control_plane/control_plane_transport.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+final _origin = Uri.parse('https://control.example');
 
 void main() {
   test('request and response own immutable byte and header snapshots', () {
@@ -26,6 +31,8 @@ void main() {
     expect(request.body, [1, 2, 3]);
     expect(response.body, [4, 5, 6]);
     expect(() => request.headers['Extra'] = 'value', throwsUnsupportedError);
+    expect(() => request.body[0] = 9, throwsUnsupportedError);
+    expect(() => response.body[0] = 9, throwsUnsupportedError);
   });
 
   test('rejects unsafe requests before opening a connection', () async {
@@ -37,6 +44,30 @@ void main() {
       ControlPlaneHttpRequest(
         method: 'GET',
         uri: Uri.parse('https://user:secret@control.example/v1/projects'),
+      ),
+      ControlPlaneHttpRequest(
+        method: 'GET',
+        uri: Uri.parse('https://attacker.example/v1/projects'),
+      ),
+      ControlPlaneHttpRequest(
+        method: 'GET',
+        uri: Uri.parse('https://sub.control.example/v1/projects'),
+      ),
+      ControlPlaneHttpRequest(
+        method: 'GET',
+        uri: Uri.parse('https://control.example:444/v1/projects'),
+      ),
+      ControlPlaneHttpRequest(
+        method: 'GET',
+        uri: Uri.parse('https://127.0.0.1/v1/projects'),
+      ),
+      ControlPlaneHttpRequest(
+        method: 'GET',
+        uri: Uri.parse('https://169.254.169.254/v1/projects'),
+      ),
+      ControlPlaneHttpRequest(
+        method: 'GET',
+        uri: Uri.parse('https://control.example./v1/projects'),
       ),
       ControlPlaneHttpRequest(
         method: 'DELETE',
@@ -64,7 +95,7 @@ void main() {
     ];
 
     for (final request in requests) {
-      final transport = IoControlPlaneTransport();
+      final transport = IoControlPlaneTransport(origin: _origin);
       await expectLater(
         transport.send(request),
         throwsA(isA<ControlPlaneTransportException>()),
@@ -74,7 +105,7 @@ void main() {
   });
 
   test('fails closed after close and rejects invalid bounds', () async {
-    final transport = IoControlPlaneTransport();
+    final transport = IoControlPlaneTransport(origin: _origin);
     transport.close();
     transport.close();
 
@@ -88,12 +119,59 @@ void main() {
       throwsA(isA<ControlPlaneTransportException>()),
     );
     expect(
-      () => IoControlPlaneTransport(timeout: Duration.zero),
+      () => IoControlPlaneTransport(origin: _origin, timeout: Duration.zero),
       throwsArgumentError,
     );
     expect(
-      () => IoControlPlaneTransport(maxResponseBytes: 0),
+      () => IoControlPlaneTransport(origin: _origin, maxResponseBytes: 0),
       throwsArgumentError,
     );
+    for (final origin in [
+      Uri.parse('http://control.example'),
+      Uri.parse('https://user:secret@control.example'),
+      Uri.parse('https://control.example./'),
+      Uri.parse('https://control.example/base'),
+      Uri.parse('https://control.example?query=yes'),
+    ]) {
+      expect(
+        () => IoControlPlaneTransport(origin: origin),
+        throwsArgumentError,
+      );
+    }
   });
+
+  test('aborts a request that opens after the deadline', () async {
+    final opened = Completer<HttpClientRequest>();
+    final transport = IoControlPlaneTransport(
+      origin: _origin,
+      timeout: const Duration(milliseconds: 1),
+      openRequest: (_, _) => opened.future,
+    );
+    addTearDown(transport.close);
+    final send = transport.send(
+      ControlPlaneHttpRequest(
+        method: 'GET',
+        uri: Uri.parse('https://control.example/v1/projects'),
+      ),
+    );
+
+    await expectLater(send, throwsA(isA<ControlPlaneTransportException>()));
+    final lateRequest = _LateHttpClientRequest();
+    opened.complete(lateRequest);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(lateRequest.aborted, isTrue);
+  });
+}
+
+final class _LateHttpClientRequest implements HttpClientRequest {
+  bool aborted = false;
+
+  @override
+  void abort([Object? exception, StackTrace? stackTrace]) {
+    aborted = true;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
