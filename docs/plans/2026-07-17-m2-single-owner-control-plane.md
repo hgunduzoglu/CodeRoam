@@ -53,6 +53,8 @@ integration. Those remain assigned to later milestones.
 - The provider-neutral HTTP boundary accepts one Bearer credential as opaque verification evidence,
   exposes only a verified nonzero actor to handlers, and returns fixed credential-free JSON errors;
   runtime provider composition remains blocked on the approved bootstrap decision.
+- The authenticated `GET /v1/projects` handler and OpenAPI 3.1 contract expose a bounded owner-only
+  project summary list; they remain unwired at runtime until the authentication adapter is approved.
 
 ## Design
 
@@ -242,6 +244,11 @@ authorization source or durable store.
   start still reauthorizes the active agent. Owner-constrained left joins make orphaned or
   cross-owner hierarchy corruption fail the whole read without exposing foreign metadata. Every
   stored field and finite timestamp is revalidated through the environment/project domains.
+- 2026-07-19: Expose the project read model through authenticated `GET /v1/projects` with one strict
+  optional `limit`, fixed JSON failures, and no project root/provider or other engineering metadata.
+  Revalidate every summary and response count at the serialization boundary even though the owning
+  repository already validates storage. Keep the OpenAPI 3.1 contract next to the deployable and
+  lint it independently; do not mount the handler until a real identity verifier is composed.
 - 2026-07-19: Define session metadata as one authenticated owner plus canonical session, device,
   agent, and project IDs, a bounded canonical server-selected relay-region label, and a server-owned
   start time. Keep every field private and expose no serialization or credential surface. A session
@@ -517,6 +524,13 @@ focused `go vet`, ShellCheck, Bash syntax, and the full PostgreSQL 17 Compose in
 Integration coverage proves deterministic limits, owner isolation, revoked-agent visibility without
 session authorization, corrupt root rejection, and fail-closed orphaned/cross-owner hierarchies.
 Adversarial review's silent-inner-join omission finding was fixed with owner-constrained left joins.
+
+2026-07-19 projects-REST slice validation passed: 125 focused transport/workspace cases under the
+race detector, focused `go vet`, `git diff --check`, YAML parsing, and Redocly CLI 2.13.0 validation
+with no OpenAPI errors or warnings. Tests cover authenticated owner propagation, strict/default
+limits, duplicate and unknown queries, fixed error mapping, typed-nil dependencies, bounded response
+counts, invalid summary rejection, and absence of root-path output. Final adversarial review found no
+remaining issue after serialization-boundary revalidation was added.
 
 ## Recovery and rollback
 

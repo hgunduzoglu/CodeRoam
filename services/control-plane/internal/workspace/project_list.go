@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/hgunduzoglu/coderoam/packages/go/ids"
 	"github.com/hgunduzoglu/coderoam/services/control-plane/internal/auth"
@@ -23,6 +26,26 @@ type ProjectSummary struct {
 	Name            string
 	EnvironmentName string
 	CreatedAt       time.Time
+}
+
+func (summary ProjectSummary) Valid() bool {
+	if _, err := ids.Parse(summary.ID); err != nil {
+		return false
+	}
+	if _, err := ids.Parse(summary.EnvironmentID); err != nil {
+		return false
+	}
+	if _, err := ids.Parse(summary.AgentID); err != nil {
+		return false
+	}
+	validName := func(value string, maxBytes, maxRunes int) bool {
+		return value != "" && len(value) <= maxBytes && utf8.ValidString(value) &&
+			strings.TrimSpace(value) == value && !strings.ContainsFunc(value, unicode.IsControl) &&
+			utf8.RuneCountInString(value) <= maxRunes
+	}
+	return validName(summary.Name, maxProjectNameBytes, maxProjectNameRunes) &&
+		validName(summary.EnvironmentName, maxEnvironmentNameBytes, maxEnvironmentNameRunes) &&
+		!summary.CreatedAt.IsZero()
 }
 
 func (repository *Repository) ListProjects(

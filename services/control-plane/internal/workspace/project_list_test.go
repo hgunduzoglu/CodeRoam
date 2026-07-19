@@ -56,3 +56,29 @@ func TestRepositoryListProjectsRejectsInvalidBoundaries(t *testing.T) {
 		t.Fatalf("ListProjects(nil transaction) error = %v", err)
 	}
 }
+
+func TestProjectSummaryValid(t *testing.T) {
+	valid := ProjectSummary{
+		ID: "1123456789abcdef0123456789abcdef", EnvironmentID: "2123456789abcdef0123456789abcdef",
+		AgentID: "3123456789abcdef0123456789abcdef", Name: "CodeRoam",
+		EnvironmentName: "Development", CreatedAt: time.Date(2026, time.July, 19, 23, 0, 0, 0, time.UTC),
+	}
+	if !valid.Valid() {
+		t.Fatal("valid project summary was rejected")
+	}
+	tests := map[string]ProjectSummary{
+		"invalid project id":       func() ProjectSummary { value := valid; value.ID = "invalid"; return value }(),
+		"invalid environment id":   func() ProjectSummary { value := valid; value.EnvironmentID = "invalid"; return value }(),
+		"invalid agent id":         func() ProjectSummary { value := valid; value.AgentID = "invalid"; return value }(),
+		"control name":             func() ProjectSummary { value := valid; value.Name = "secret\nname"; return value }(),
+		"unnormalized environment": func() ProjectSummary { value := valid; value.EnvironmentName = " Development "; return value }(),
+		"zero creation":            func() ProjectSummary { value := valid; value.CreatedAt = time.Time{}; return value }(),
+	}
+	for name, summary := range tests {
+		t.Run(name, func(t *testing.T) {
+			if summary.Valid() {
+				t.Fatal("invalid project summary was accepted")
+			}
+		})
+	}
+}
