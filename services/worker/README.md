@@ -14,3 +14,10 @@ the transaction-local row locator lets malformed rows be discarded without loadi
 primary key. `Finish` accepts only closed completed, retry, or discard outcomes; increments attempts
 without overflowing PostgreSQL `integer`; stores only fixed safe failure classifications; and never
 commits or rolls back the caller's transaction. Retry scheduling uses a fixed bounded delay.
+
+`Processor.ProcessNext` owns one bounded claim/handler/finish transaction. Handlers receive only the
+closed event kind and opaque aggregate ID, must honor the supplied deadline, and must be idempotent:
+a crash after an external side effect but before the database commit deliberately causes duplicate
+delivery. Retryable failures are delayed, permanent failures and exhausted attempts are terminal,
+and commit errors return an explicit unknown-outcome result. Handler error text is never persisted.
+The worker runtime does not invoke this processor until its M2 runtime handler is wired.

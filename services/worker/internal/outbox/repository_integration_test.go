@@ -228,6 +228,46 @@ func insertWorkerOutboxFixture(
 	}
 }
 
+func insertNonFiniteWorkerOutboxFixture(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	fixture workerOutboxFixture,
+	availableAt string,
+) {
+	t.Helper()
+	registerWorkerOutboxFixtureCleanup(t, ctx, pool, fixture.id)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO outbox.events (
+			id, event_type, aggregate_type, aggregate_id, payload, available_at, attempt_count
+		) VALUES ($1, $2, $3, $4, $5::jsonb, $6::text::timestamptz, $7)`,
+		fixture.id, fixture.eventType, fixture.aggregateType, fixture.aggregateID,
+		fixture.payload, availableAt, fixture.attemptCount,
+	); err != nil {
+		t.Fatalf("insert non-finite outbox fixture: %v", err)
+	}
+}
+
+func registerWorkerOutboxFixtureCleanup(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	eventID string,
+) {
+	t.Helper()
+	var storedID string
+	if err := pool.QueryRow(ctx, `SELECT id FROM outbox.events WHERE id = $1`, eventID).Scan(&storedID); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("outbox fixture %q lookup error = %v, want pgx.ErrNoRows", eventID, err)
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cleanupCancel()
+		if _, err := pool.Exec(cleanupCtx, `DELETE FROM outbox.events WHERE id = $1`, eventID); err != nil {
+			t.Errorf("delete outbox fixture: %v", err)
+		}
+	})
+}
+
 func beginWorkerOutboxTx(t *testing.T, ctx context.Context, pool *pgxpool.Pool, name string) pgx.Tx {
 	t.Helper()
 	tx, err := pool.Begin(ctx)
@@ -288,6 +328,34 @@ func assertWorkerOutboxState(
 		t.Fatalf(
 			"outbox state = processed %v, available %v, attempts %d, error %v",
 			processedAt, availableAt, attemptCount, lastError,
+		)
+	}
+}
+
+func assertWorkerOutboxTerminalState(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	eventID string,
+	wantProcessedAt *time.Time,
+	wantAttempts int,
+	wantLastError *string,
+) {
+	t.Helper()
+	var processedAt *time.Time
+	var attemptCount int
+	var lastError *string
+	if err := pool.QueryRow(ctx, `
+		SELECT processed_at, attempt_count, last_error
+		FROM outbox.events WHERE id = $1`, eventID,
+	).Scan(&processedAt, &attemptCount, &lastError); err != nil {
+		t.Fatalf("read terminal outbox event state: %v", err)
+	}
+	if !optionalWorkerOutboxTimeEqual(processedAt, wantProcessedAt) ||
+		attemptCount != wantAttempts || !optionalWorkerOutboxStringEqual(lastError, wantLastError) {
+		t.Fatalf(
+			"terminal outbox state = processed %v, attempts %d, error %v",
+			processedAt, attemptCount, lastError,
 		)
 	}
 }

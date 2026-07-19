@@ -43,7 +43,8 @@ integration. Those remain assigned to later milestones.
   persists the metadata in one bounded transaction using a caller-stable opaque session ID.
 - The control-plane runtime opens and verifies a bounded PostgreSQL pool before serving, drains HTTP
   requests during shutdown, and closes the pool after the server stops.
-- The worker runtime still emits only a heartbeat and does not yet invoke outbox processing.
+- The worker runtime still emits only a heartbeat, while its processor can execute one bounded,
+  retry-safe, duplicate-delivery-safe claim/handler/finish transaction; runtime wiring remains.
 - The worker's outbox repository can claim one due event with `FOR UPDATE SKIP LOCKED` and record a
   closed completed, delayed-retry, or permanent-discard outcome inside its caller's transaction;
   runtime processing is not wired yet.
@@ -259,6 +260,13 @@ authorization source or durable store.
   complete, fixed-delay retry, or permanent-discard outcomes; increment attempts without integer
   overflow and persist only fixed safe error classifications. The repository never owns commit or
   rollback, and the next processor slice must bound the complete claim/handler/finish transaction.
+- 2026-07-19: Process one delivery per bounded transaction, holding the claimed row lock across an
+  idempotent deadline-aware handler and the closed finish update. A handler timeout or retryable
+  failure schedules a fixed-delay retry, a permanent failure or fifth failed attempt terminates the
+  row with a fixed safe classification, and invalid metadata never reaches a handler. A crash after
+  an external side effect but before commit intentionally redelivers the row, so handlers must be
+  idempotent. Any commit error returns an outcome-unknown result; raw handler errors are neither
+  persisted nor returned as delivery metadata.
 
 ## Validation
 
@@ -458,6 +466,17 @@ skipping, concurrent `SKIP LOCKED` claims, fixed-delay retry, successful re-deli
 invalid-event terminal outcomes, transaction rollback recovery, attempt/error metadata, and bounded
 handling of a 4 KiB malformed event ID. The first run exposed an assertion that compared retry time
 to the original availability time; correcting the expected retry fixture resolved the test defect.
+
+2026-07-19 worker-outbox-processor slice validation passed: 29 focused worker cases under the race
+detector, focused `go vet`, ShellCheck, Bash syntax, PostgreSQL 17 integration, and the full Compose
+infrastructure gate. Coverage proves success, no-work rollback, invalid/permanent/exhausted terminal
+outcomes, fixed-delay retry and later success, cooperative handler timeout, exact transaction reuse,
+commit-outcome ambiguity, crash-after-side-effect rollback and duplicate redelivery, and a real
+committed-but-error outcome that is not processed twice. Raw handler error text never enters the
+database. Adversarial review found and fixed non-finite availability timestamps: `-infinity` could
+otherwise poison the ordered claim queue, while `+infinity` could remain falsely pending forever.
+PostgreSQL integration proves both are discarded without invoking a handler and that the next valid
+event proceeds. The worker module is also tidy and independently testable with `GOWORK=off`.
 
 ## Recovery and rollback
 

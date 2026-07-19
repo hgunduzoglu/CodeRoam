@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const (
@@ -66,7 +67,7 @@ func (repository *Repository) Claim(
 	var locator string
 	var encodedID, eventType, aggregateType, encodedAggregateID *string
 	var payloadEmpty bool
-	var storedAvailableAt time.Time
+	var storedAvailableAt pgtype.Timestamptz
 	var attemptCount int
 	err := tx.QueryRow(operationCtx, `
 		SELECT ctid::text,
@@ -78,7 +79,7 @@ func (repository *Repository) Claim(
 		       available_at,
 		       attempt_count
 		FROM outbox.events
-		WHERE processed_at IS NULL AND available_at <= $1
+		WHERE processed_at IS NULL AND (NOT isfinite(available_at) OR available_at <= $1)
 		ORDER BY available_at, id
 		FOR UPDATE SKIP LOCKED
 		LIMIT 1`, availableAt.UTC()).Scan(
@@ -92,13 +93,14 @@ func (repository *Repository) Claim(
 		return claimedEvent{}, false, repositoryError("claim", err)
 	}
 	claim := claimedEvent{locator: locator}
-	if encodedID == nil || eventType == nil || aggregateType == nil || encodedAggregateID == nil {
+	if encodedID == nil || eventType == nil || aggregateType == nil || encodedAggregateID == nil ||
+		!storedAvailableAt.Valid || storedAvailableAt.InfinityModifier != pgtype.Finite {
 		claim.invalid = true
 		return claim, true, nil
 	}
 	event, err := parseEvent(
 		*encodedID, *eventType, *aggregateType, *encodedAggregateID,
-		payloadEmpty, storedAvailableAt, attemptCount,
+		payloadEmpty, storedAvailableAt.Time, attemptCount,
 	)
 	if err != nil || event.availableAt.After(availableAt) {
 		claim.invalid = true
