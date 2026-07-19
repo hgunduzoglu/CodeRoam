@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:coderoam/features/control_plane/infrastructure/control_plane_api_repository.dart';
 import 'package:coderoam/features/session/application/session_repository.dart';
 import 'package:coderoam/features/session/domain/session_start_request.dart';
+import 'package:coderoam/features/session/presentation/session_start_controller.dart';
 import 'package:coderoam/shared/control_plane/control_plane_transport.dart';
 import 'package:coderoam/shared/domain/opaque_id.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -79,36 +80,71 @@ void main() {
     expect(utf8.decode(sent.body), isNot(contains('ticket')));
   });
 
-  test(
-    'preserves only an exact unknown commit outcome for safe retry',
-    () async {
-      final exact = _repository(
-        _TransportStub(
-          response: _jsonResponse(503, {
-            'error': {'code': 'session_outcome_unknown'},
-          }),
-        ),
-      );
-      await expectLater(
-        exact.startSession(_sessionRequest()),
-        throwsA(isA<SessionStartOutcomeUnknown>()),
-      );
-      exact.close();
+  test('preserves every server 5xx outcome for safe retry', () async {
+    final request = _sessionRequest();
+    final responses = [
+      _jsonResponse(503, {
+        'error': {'code': 'session_outcome_unknown'},
+      }),
+      _jsonResponse(503, {
+        'error': {'code': 'sessions_unavailable', 'detail': 'ignored'},
+      }),
+      _response(503, 'text/html', utf8.encode('proxy unavailable')),
+      _rawJsonResponse(
+        503,
+        '{"error":{"code":"sessions_unavailable"},'
+        '"error":{"code":"session_outcome_unknown"}}',
+      ),
+      _response(504, null, const []),
+    ];
 
-      final ambiguous = _repository(
-        _TransportStub(
-          response: _jsonResponse(503, {
-            'error': {'code': 'session_outcome_unknown', 'detail': 'secret'},
-          }),
+    for (final response in responses) {
+      final repository = _repository(_TransportStub(response: response));
+      await expectLater(
+        repository.startSession(request),
+        throwsA(
+          isA<SessionStartOutcomeUnknown>().having(
+            (error) => error.request.sameAs(request),
+            'same request',
+            isTrue,
+          ),
         ),
       );
-      await expectLater(
-        ambiguous.startSession(_sessionRequest()),
-        throwsA(isA<ControlPlaneApiException>()),
+      repository.close();
+    }
+  });
+
+  test('controller resends all four IDs after ambiguous 503s', () async {
+    final ambiguousResponses = [
+      _jsonResponse(503, {
+        'error': {'code': 'sessions_unavailable'},
+      }),
+      _response(503, 'text/html', utf8.encode('proxy unavailable')),
+    ];
+
+    for (final ambiguousResponse in ambiguousResponses) {
+      final transport = _TransportStub(
+        responses: [ambiguousResponse, _sessionResponse()],
       );
-      ambiguous.close();
-    },
-  );
+      final repository = _repository(transport);
+      final controller = SessionStartController(repository);
+      final request = _sessionRequest();
+      try {
+        expect(await controller.start(request), isFalse);
+        expect(controller.status, SessionStartStatus.outcomeUnknown);
+        expect(await controller.retryOutcomeUnknown(), isTrue);
+        expect(controller.status, SessionStartStatus.metadataReady);
+        expect(transport.requests, hasLength(2));
+        expect(
+          transport.requests.map((sent) => jsonDecode(utf8.decode(sent.body))),
+          everyElement(equals(request.toJson())),
+        );
+      } finally {
+        controller.dispose();
+        repository.close();
+      }
+    }
+  });
 
   test('marks unusable successful session metadata outcome unknown', () async {
     final responses = [
@@ -222,26 +258,6 @@ void main() {
       );
       repository.close();
     }
-
-    for (final response in [
-      _rawJsonResponse(
-        503,
-        '{"error":{"code":"sessions_unavailable"},'
-        '"error":{"code":"session_outcome_unknown"}}',
-      ),
-      _rawJsonResponse(
-        503,
-        '{"error":{"code":"sessions_unavailable",'
-        '"code":"session_outcome_unknown"}}',
-      ),
-    ]) {
-      final repository = _repository(_TransportStub(response: response));
-      await expectLater(
-        repository.startSession(request),
-        throwsA(isA<ControlPlaneApiException>()),
-      );
-      repository.close();
-    }
   });
 
   test('rejects malformed evidence before transport and closes once', () async {
@@ -340,11 +356,12 @@ void main() {
 }
 
 final class _TransportStub implements ControlPlaneTransport {
-  _TransportStub({this.response, this.error, this.completer});
+  _TransportStub({this.response, this.error, this.completer, this.responses});
 
   final ControlPlaneHttpResponse? response;
   final Object? error;
   final Completer<ControlPlaneHttpResponse>? completer;
+  final List<ControlPlaneHttpResponse>? responses;
   final List<ControlPlaneHttpRequest> requests = [];
   final Completer<void> dispatched = Completer<void>();
   int closeCalls = 0;
@@ -360,6 +377,9 @@ final class _TransportStub implements ControlPlaneTransport {
     }
     if (completer case final completer?) {
       return completer.future;
+    }
+    if (responses case final responses? when responses.isNotEmpty) {
+      return responses.removeAt(0);
     }
     final value = response;
     if (value == null) {

@@ -93,8 +93,7 @@ final class ControlPlaneApiRepository
         ),
         outcomeUnknownRequest: request,
       );
-      if (response.statusCode == 503 &&
-          _errorCode(response) == 'session_outcome_unknown') {
+      if (response.statusCode >= 500 && response.statusCode <= 599) {
         throw SessionStartOutcomeUnknown(request);
       }
       if (response.statusCode != 200) {
@@ -188,24 +187,6 @@ Map<String, Object?> _decodeJsonObject(ControlPlaneHttpResponse response) {
     throw const ControlPlaneApiException();
   }
   return decoded;
-}
-
-String? _errorCode(ControlPlaneHttpResponse response) {
-  try {
-    final envelope = _decodeJsonObject(response);
-    if (envelope.length != 1 || !envelope.containsKey('error')) {
-      return null;
-    }
-    final error = envelope['error'];
-    if (error is! Map<String, Object?> ||
-        error.length != 1 ||
-        !error.containsKey('code')) {
-      return null;
-    }
-    return error['code'] is String ? error['code'] as String : null;
-  } catch (_) {
-    return null;
-  }
 }
 
 bool _validBearerEvidence(String evidence) {

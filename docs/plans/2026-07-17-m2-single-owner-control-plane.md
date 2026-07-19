@@ -317,6 +317,10 @@ authorization source or durable store.
   origin, reject redirects and unsafe headers, bound authentication evidence, deadlines, JSON depth,
   and response bodies, preserve caller-stable session requests after ambiguous outcomes, and never
   expose a relay ticket or capability.
+- 2026-07-20: Treat every post-dispatch session-start 5xx response as outcome-unknown before parsing
+  its body. A gateway can replace the backend response after a successful commit, so canonical,
+  unavailable, malformed, duplicate-key, or empty 5xx responses must all retry the exact same
+  session, device, agent, and project IDs; known non-5xx rejections remain fixed failures.
 - 2026-07-20: Let the Flutter composition shell own repositories, transports, controllers, and
   trust-bound routes. Changing origin, device, evidence provider, transport factory, or removing the
   shell immediately revokes old controllers and closes transport state, then removes stale routes
@@ -587,18 +591,20 @@ were fixed and re-reviewed cleanly.
 2026-07-20 Flutter transport-and-repository validation passed: focused transport/repository tests,
 the full mobile suite, and `flutter analyze`. Coverage proves a pinned same-origin HTTPS boundary,
 disabled redirects, immutable bounded bodies, total deadlines including late socket acquisition,
-strict duplicate-aware JSON, fixed credential-free failures, and exact unknown-outcome request
-retention. High and Medium review findings across origin pinning, mutable data, late requests,
-ambiguous outcomes, and duplicate keys were fixed; final re-reviews found no remaining issue.
+strict duplicate-aware successful JSON, fixed credential-free failures, and exact unknown-outcome
+request retention for transport races and every post-dispatch 5xx. High and Medium review findings
+across origin pinning, mutable data, late requests, ambiguous outcomes, duplicate keys, and proxy
+503/504 retry identity were fixed; final re-reviews found no remaining issue. The controller-level
+regression proves both attempts send all four identical IDs.
 
-2026-07-20 Flutter-runtime-composition validation passed: 10 focused widget cases, 79 full mobile
+2026-07-20 Flutter-runtime-composition validation passed: 10 focused widget cases, 84 full mobile
 tests, and `flutter analyze`. Trust-input rotation and shell replacement are covered while routes are
 idle, in flight, outcome-unknown, metadata-ready, or displaying the local workspace. Old transport
 state closes exactly once, stale routes are removed, and late completions cannot reopen them. Two
 route-lifecycle findings were fixed; final security re-review was clean.
 
 2026-07-20 completed-scope final validation passed: `make fmt`, `make lint`, `make test`, `make build`,
-and `make test-infrastructure`. All Go modules formatted, vetted, and tested; Flutter analysis and 79
+and `make test-infrastructure`. All Go modules formatted, vetted, and tested; Flutter analysis and 84
 tests passed; both WebView packages type-checked, tested, and built; every Go deployable and container
 image built; agent-skill mirrors were synchronized; and the PostgreSQL 17/Redis Compose smoke,
 migration, repeat-start, worker, and health checks passed. Protocol contracts did not change, and no
