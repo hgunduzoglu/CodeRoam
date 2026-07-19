@@ -80,6 +80,9 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
       go test -count=1 \
         -run '^(TestRepositoryAgentRevocationIntegration|TestRepositoryAuthorizeAgentIntegration|TestRepositoryAuthorizeAgentLockIntegration|TestRepositoryAuthorizeAgentTimeoutIntegration|TestRepositoryAuthorizeProjectIntegration|TestRepositoryAuthorizeProjectLockIntegration)$' \
         ./internal/workspace)
+  (cd services/worker && \
+    POSTGRES_TEST_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' \
+      go test -count=1 -run '^TestRepositoryClaimFinishIntegration$' ./internal/outbox)
 
   assert_http_health http://localhost:8080/healthz coderoam-control-plane
   assert_http_health http://localhost:8090/healthz coderoam-relay

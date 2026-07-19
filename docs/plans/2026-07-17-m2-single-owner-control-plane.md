@@ -43,7 +43,10 @@ integration. Those remain assigned to later milestones.
   persists the metadata in one bounded transaction using a caller-stable opaque session ID.
 - The control-plane runtime opens and verifies a bounded PostgreSQL pool before serving, drains HTTP
   requests during shutdown, and closes the pool after the server stops.
-- The worker emits a heartbeat but does not claim or process outbox events.
+- The worker runtime still emits only a heartbeat and does not yet invoke outbox processing.
+- The worker's outbox repository can claim one due event with `FOR UPDATE SKIP LOCKED` and record a
+  closed completed, delayed-retry, or permanent-discard outcome inside its caller's transaction;
+  runtime processing is not wired yet.
 - Authentication-provider/bootstrap behavior is not specified, so no provider-specific login flow
   will be invented inside an ownership slice.
 
@@ -249,6 +252,13 @@ authorization source or durable store.
   Accept only canonical opaque event and aggregate IDs, exact device/agent revocation kind pairs,
   an exactly empty JSON payload, a nonzero availability time, and a nonnegative attempt count.
   Reject unknown, mismatched, malformed, or payload-bearing rows without exposing their contents.
+- 2026-07-19: Claim at most one due outbox row inside a caller-owned transaction using ordered
+  `FOR UPDATE SKIP LOCKED`, so concurrent workers never handle the same locked delivery. Bound text
+  in SQL before it crosses the process boundary and use the locked transaction-local row locator to
+  quarantine malformed metadata without loading an oversized ID. Finish only through closed
+  complete, fixed-delay retry, or permanent-discard outcomes; increment attempts without integer
+  overflow and persist only fixed safe error classifications. The repository never owns commit or
+  rollback, and the next processor slice must bound the complete claim/handler/finish transaction.
 
 ## Validation
 
@@ -440,6 +450,14 @@ event or aggregate IDs, unknown or mismatched event/aggregate kinds, nonempty pa
 availability times, and negative attempt counts. No persistence, external side effect, logging,
 runtime dependency beyond the existing opaque-ID primitive, or engineering-payload surface was
 introduced.
+
+2026-07-19 worker-outbox-repository slice validation passed: 12 focused worker cases under the race
+detector, focused `go vet`, module verification, ShellCheck, Bash syntax, PostgreSQL 17 integration,
+and the full Compose infrastructure gate. Integration coverage proves due-time ordering, future-row
+skipping, concurrent `SKIP LOCKED` claims, fixed-delay retry, successful re-delivery, completed and
+invalid-event terminal outcomes, transaction rollback recovery, attempt/error metadata, and bounded
+handling of a 4 KiB malformed event ID. The first run exposed an assertion that compared retry time
+to the original availability time; correcting the expected retry fixture resolved the test defect.
 
 ## Recovery and rollback
 
