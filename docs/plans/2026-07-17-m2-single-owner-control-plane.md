@@ -259,6 +259,11 @@ authorization source or durable store.
 - 2026-07-19: Expose session metadata to transport only through `MetadataFor` with the exact owning
   actor. The view contains canonical resource IDs, relay region, and start time only; foreign or zero
   actors receive nothing, and no ticket, credential, cryptographic material, or capability is added.
+- 2026-07-19: Accept metadata-session starts through authenticated `POST /v1/sessions` only as one
+  bounded JSON object containing each canonical caller-stable resource ID exactly once. Reject
+  duplicate/case-alias fields, unknown fields, trailing data, and mismatched service results. Return
+  an explicit `metadata-only` marker—not a ticket—and distinguish commit outcome unknown so clients
+  retry the same ID and inputs. Keep the OpenAPI contract free of token/key/connection fields.
 - 2026-07-19: Persist validated session metadata only through an existing `pgx.Tx`, under a fixed
   maximum deadline, without letting the repository begin or finish the transaction. Map the
   session primary-key conflict to a typed duplicate result, keep invalid/canceled calls SQL-free,
@@ -539,6 +544,13 @@ remaining issue after serialization-boundary revalidation was added.
 detector, focused `go vet`, and clean formatting/diffs. Owner, foreign-owner, and zero-value coverage
 proves the view exposes only canonical metadata to the exact actor. Security review found no issue
 and confirmed ticket, key, and authorization material remain outside the boundary.
+
+2026-07-19 sessions-REST slice validation passed: 103 focused transport/session cases under the race
+detector, focused `go vet`, `git diff --check`, and clean Redocly CLI 2.13.0 OpenAPI validation.
+Coverage proves authentication, strict media/body bounds, exact once-only JSON fields, canonical
+stable IDs, returned-ID reconciliation, fixed failures, outcome-unknown retry signaling, and a
+metadata-only response with no ticket. Adversarial review's duplicate-key and missing-contract
+findings were fixed; final re-review found no remaining issue.
 
 ## Recovery and rollback
 
