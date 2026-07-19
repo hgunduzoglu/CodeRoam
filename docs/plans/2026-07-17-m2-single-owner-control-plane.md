@@ -43,8 +43,8 @@ integration. Those remain assigned to later milestones.
   persists the metadata in one bounded transaction using a caller-stable opaque session ID.
 - The control-plane runtime opens and verifies a bounded PostgreSQL pool before serving, drains HTTP
   requests during shutdown, and closes the pool after the server stops.
-- The worker runtime still emits only a heartbeat, while its processor can execute one bounded,
-  retry-safe, duplicate-delivery-safe claim/handler/finish transaction; runtime wiring remains.
+- The worker runtime owns a bounded PostgreSQL pool and drains retry-safe, duplicate-delivery-safe
+  claim/handler/finish transactions until graceful cancellation.
 - The worker's outbox repository can claim one due event with `FOR UPDATE SKIP LOCKED` and record a
   closed completed, delayed-retry, or permanent-discard outcome inside its caller's transaction;
   runtime processing is not wired yet.
@@ -111,7 +111,7 @@ authorization source or durable store.
 - [x] Add the bounded session metadata domain boundary.
 - [x] Persist validated session metadata inside a caller-owned transaction.
 - [x] Implement session authorization and retry-stable session metadata.
-- [ ] Implement worker outbox processing.
+- [x] Implement worker outbox processing.
 - [ ] Integrate the Flutter M2 surface.
 - [ ] Run final validation and record M2 acceptance.
 
@@ -267,6 +267,11 @@ authorization source or durable store.
   an external side effect but before commit intentionally redelivers the row, so handlers must be
   idempotent. Any commit error returns an outcome-unknown result; raw handler errors are neither
   persisted nor returned as delivery metadata.
+- 2026-07-19: Wire the worker runtime to a verified bounded PostgreSQL pool and one immediate-drain
+  processing loop with fixed-delay backoff after empty claims or failures. Keep runtime logs static
+  and metadata-free, close the pool after cancellation, and fail startup on an invalid processing
+  flag. M2 acknowledges the closed revocation event kinds because relay sessions do not exist; M4
+  must replace that acknowledgement with active-session termination before enabling relay sessions.
 
 ## Validation
 
@@ -477,6 +482,14 @@ database. Adversarial review found and fixed non-finite availability timestamps:
 otherwise poison the ordered claim queue, while `+infinity` could remain falsely pending forever.
 PostgreSQL integration proves both are discarded without invoking a handler and that the next valid
 event proceeds. The worker module is also tidy and independently testable with `GOWORK=off`.
+
+2026-07-19 worker-runtime slice validation passed: focused runtime and processor packages under the
+race detector, focused `go vet`, module verification, `govulncheck`, ShellCheck, Bash syntax, Docker
+image build, and the full PostgreSQL 17 Compose gate. Unit coverage proves strict configuration,
+pool close after cancellation, immediate draining, clean shutdown after processor failure, and the
+closed M2 handler boundary. Runtime integration proves the enabled worker opens its own pool,
+claims a real revocation event, persists one successful attempt, and shuts down cleanly; the Compose
+worker remains explicitly disabled while fixture-owning integration packages run.
 
 ## Recovery and rollback
 

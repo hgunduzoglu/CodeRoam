@@ -20,4 +20,9 @@ closed event kind and opaque aggregate ID, must honor the supplied deadline, and
 a crash after an external side effect but before the database commit deliberately causes duplicate
 delivery. Retryable failures are delayed, permanent failures and exhausted attempts are terminal,
 and commit errors return an explicit unknown-outcome result. Handler error text is never persisted.
-The worker runtime does not invoke this processor until its M2 runtime handler is wired.
+The runtime opens and verifies a bounded PostgreSQL pool, drains available events one transaction at
+a time, backs off after an empty claim or failure, and closes the pool after graceful cancellation.
+`WORKER_PROCESSING_ENABLED=false` is reserved for isolated database-test orchestration; unset or
+`true` enables processing, and other values fail startup. M2 acknowledges revocations because relay
+sessions do not exist yet. M4 must replace that acknowledgement with active-session termination
+before it enables relay sessions.

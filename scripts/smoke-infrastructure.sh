@@ -45,7 +45,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 
   "${compose[@]}" config --quiet
   resources_started=true
-  "${compose[@]}" up --build --detach --wait --wait-timeout 120
+  WORKER_PROCESSING_ENABLED=false "${compose[@]}" up --build --detach --wait --wait-timeout 120
 
   POSTGRES_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' ./scripts/migrate.sh
   POSTGRES_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' ./scripts/migrate.sh
@@ -85,6 +85,9 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
       go test -count=1 \
         -run '^(TestProcessorIntegration|TestRepositoryClaimFinishIntegration)$' \
         ./internal/outbox)
+  (cd services/worker && \
+    POSTGRES_TEST_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' \
+      go test -count=1 -run '^TestRunWorkerIntegration$' ./cmd/worker)
 
   assert_http_health http://localhost:8080/healthz coderoam-control-plane
   assert_http_health http://localhost:8090/healthz coderoam-relay
