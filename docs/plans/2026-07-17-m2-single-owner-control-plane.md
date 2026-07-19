@@ -236,6 +236,12 @@ authorization source or durable store.
   then `AuthorizeProject`, and persist ticket metadata in that same bounded transaction. The method
   is read-only, ignores repository URL and last-opened metadata, and changes no schema, index,
   backfill, outbox, Redis, transport, or filesystem behavior.
+- 2026-07-19: List at most 100 owner-scoped project summaries in deterministic newest-first order,
+  exposing only opaque project/environment/agent IDs plus bounded display metadata and creation
+  time. Listing represents stable ownership, so a revoked agent does not erase the project; session
+  start still reauthorizes the active agent. Owner-constrained left joins make orphaned or
+  cross-owner hierarchy corruption fail the whole read without exposing foreign metadata. Every
+  stored field and finite timestamp is revalidated through the environment/project domains.
 - 2026-07-19: Define session metadata as one authenticated owner plus canonical session, device,
   agent, and project IDs, a bounded canonical server-selected relay-region label, and a server-owned
   start time. Keep every field private and expose no serialization or credential surface. A session
@@ -505,6 +511,12 @@ full control-plane vet, `govulncheck`, and module verification. Adversarial revi
 coalesced/ambiguous Bearer evidence, typed-nil dependency panics, and padding-only tokens. The final
 boundary rejects those cases before verification, exposes no credential/provider detail, and never
 lets a zero actor reach a protected handler.
+
+2026-07-19 project-list slice validation passed: 72 focused workspace cases under the race detector,
+focused `go vet`, ShellCheck, Bash syntax, and the full PostgreSQL 17 Compose infrastructure gate.
+Integration coverage proves deterministic limits, owner isolation, revoked-agent visibility without
+session authorization, corrupt root rejection, and fail-closed orphaned/cross-owner hierarchies.
+Adversarial review's silent-inner-join omission finding was fixed with owner-constrained left joins.
 
 ## Recovery and rollback
 
