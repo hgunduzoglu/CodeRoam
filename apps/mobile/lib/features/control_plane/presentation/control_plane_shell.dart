@@ -19,6 +19,7 @@ final class ControlPlaneShell extends StatefulWidget {
     required this.origin,
     required this.deviceId,
     required this.authenticationEvidence,
+    this.onSignOut,
     this.transportFactory,
     this.touchWorkspaceBuilder,
     super.key,
@@ -27,6 +28,7 @@ final class ControlPlaneShell extends StatefulWidget {
   final ControlPlaneOrigin origin;
   final OpaqueId deviceId;
   final AuthenticationEvidenceProvider authenticationEvidence;
+  final VoidCallback? onSignOut;
   final ControlPlaneTransportFactory? transportFactory;
   final WidgetBuilder? touchWorkspaceBuilder;
 
@@ -83,6 +85,7 @@ final class _ControlPlaneShellState extends State<ControlPlaneShell> {
     return ProjectCatalogScreen(
       controller: _projects,
       onProjectSelected: _openProject,
+      onSignOut: widget.onSignOut,
     );
   }
 

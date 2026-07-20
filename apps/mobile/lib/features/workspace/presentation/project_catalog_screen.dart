@@ -6,11 +6,13 @@ final class ProjectCatalogScreen extends StatefulWidget {
   const ProjectCatalogScreen({
     required this.controller,
     required this.onProjectSelected,
+    this.onSignOut,
     super.key,
   });
 
   final ProjectCatalogController controller;
   final ValueChanged<ProjectSummary> onProjectSelected;
+  final VoidCallback? onSignOut;
 
   @override
   State<ProjectCatalogScreen> createState() => _ProjectCatalogScreenState();
@@ -48,6 +50,12 @@ final class _ProjectCatalogScreenState extends State<ProjectCatalogScreen> {
                           : widget.controller.load,
                   icon: const Icon(Icons.refresh),
                 ),
+                if (widget.onSignOut != null)
+                  IconButton(
+                    tooltip: 'Sign out',
+                    onPressed: widget.onSignOut,
+                    icon: const Icon(Icons.logout),
+                  ),
               ],
             ),
             body: SafeArea(

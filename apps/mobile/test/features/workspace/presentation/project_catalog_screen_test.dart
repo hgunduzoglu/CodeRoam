@@ -106,6 +106,28 @@ void main() {
     expect(find.text('No projects are available yet.'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('exposes sign out only when the owner supplies it', (
+    tester,
+  ) async {
+    final controller = ProjectCatalogController(_RepositoryStub());
+    addTearDown(controller.dispose);
+    var signOutCalls = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ProjectCatalogScreen(
+          controller: controller,
+          onProjectSelected: (_) {},
+          onSignOut: () => signOutCalls++,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byTooltip('Sign out'));
+    expect(signOutCalls, 1);
+  });
 }
 
 final class _RepositoryStub implements ProjectCatalogRepository {
