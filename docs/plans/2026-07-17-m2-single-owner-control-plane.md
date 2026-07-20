@@ -706,6 +706,17 @@ startup, migrations, and public health. Authenticated traffic through the contai
 manual acceptance check against the real registered provider because the repository intentionally
 does not ship a private-key-bearing identity-provider fixture.
 
+2026-07-20 mobile OIDC composition and automated M2 closure validation passed: 117 Flutter tests,
+`flutter analyze`, Android debug APK build, iOS simulator debug app build, `make fmt`, `make lint`,
+`make test`, `make build`, and the full PostgreSQL 17/Redis Compose infrastructure gate. Coverage
+proves invalid build inputs expose only a fixed unavailable state, authentication must restore or
+complete before the control-plane runtime exists, provider failures remain sanitized, and logout
+removes and disposes authenticated transport state. The production entry point now owns the native
+public-client OIDC flow, secure token lifecycle, registered-device bootstrap selector, and
+authenticated M2 shell; final security review found no actionable P1/P2 issue. Protocol contracts
+and M0 touch behavior did not change. The exact real-provider redirect, linked identity, active
+device ownership, and authenticated physical-device route remain the manual acceptance boundary.
+
 ## Recovery and rollback
 
 Code slices remain independent commits on the M2 branch. Forward migrations must be compatible
