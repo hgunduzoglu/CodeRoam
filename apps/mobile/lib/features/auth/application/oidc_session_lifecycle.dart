@@ -8,7 +8,14 @@ final class OidcSessionUnavailable implements Exception {
   const OidcSessionUnavailable();
 }
 
-final class OidcSessionLifecycle {
+abstract interface class OidcSession {
+  Future<bool> restore();
+  Future<String> authenticationEvidence();
+  Future<bool> signIn();
+  Future<void> signOut();
+}
+
+final class OidcSessionLifecycle implements OidcSession {
   OidcSessionLifecycle({
     required AppAuthOidcClient client,
     required OidcTokenStore tokenStore,
@@ -27,6 +34,7 @@ final class OidcSessionLifecycle {
   var _generation = 0;
   var _cleanupRequired = false;
 
+  @override
   Future<bool> restore() async {
     final generation = ++_generation;
     _tokens = null;
@@ -64,6 +72,7 @@ final class OidcSessionLifecycle {
     }
   }
 
+  @override
   Future<String> authenticationEvidence() async {
     final tokens = _tokens;
     if (tokens == null) {
@@ -79,6 +88,7 @@ final class OidcSessionLifecycle {
     }
   }
 
+  @override
   Future<bool> signIn() async {
     if (_signOutInFlight != null) {
       throw const OidcSessionUnavailable();
@@ -142,6 +152,7 @@ final class OidcSessionLifecycle {
     }
   }
 
+  @override
   Future<void> signOut() async {
     final inFlight = _signOutInFlight;
     if (inFlight != null) {
