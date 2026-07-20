@@ -13,9 +13,9 @@ This plan covers the Go control-plane modular monolith, its PostgreSQL schemas a
 worker's outbox consumption, REST/JSON contracts with OpenAPI, focused integration tests, and the
 minimum Flutter client integration required to exercise M2 behavior.
 
-It does not implement organizations, teams, memberships, generic roles/policies, agent bootstrap,
-pairing handshakes, relay routing, Noise sessions, workspace filesystem/PTY operations, or GitHub
-integration. Those remain assigned to later milestones.
+It does not implement organizations, teams, memberships, generic roles/policies, device or agent
+bootstrap, pairing handshakes, relay routing, Noise sessions, workspace filesystem/PTY operations,
+or GitHub integration. Those remain assigned to later milestones.
 
 ## Current state
 
@@ -60,9 +60,10 @@ integration. Those remain assigned to later milestones.
 - The authenticated `GET /v1/projects` and metadata-only `POST /v1/sessions` routes share one
   fail-closed runtime handler composition and an OpenAPI 3.1 contract.
 - Flutter now has strict metadata models, a same-origin bounded HTTPS transport, a provider-neutral
-  authenticated REST repository, touch project/session surfaces, and a lifecycle-owned composition
-  shell. Production app activation still needs the approved authentication evidence and stable
-  registered-device bootstrap sources.
+  authenticated REST repository, touch project/session surfaces, generic native OIDC Authorization
+  Code with PKCE, secure token persistence, and a lifecycle-owned production composition shell. The
+  M2 build takes a pre-registered device ID as a non-secret bootstrap selector until M3 pairing
+  supplies registered and pinned device identity.
 
 ## Design
 
@@ -91,7 +92,8 @@ authorization source or durable store.
 2. Add the PostgreSQL migration ledger/test harness and the approved database driver boundary.
 3. Implement auth persistence, application service, authenticated actor boundary, and REST/OpenAPI
    behavior.
-4. Implement device registration/listing/revocation with atomic outbox publication.
+4. Implement device trust, persisted authorization, and revocation with atomic outbox publication;
+   defer registration/listing to the M3 pairing contract.
 5. Implement workspace agents, environments, and projects with explicit single-owner checks.
 6. Implement session authorization and short-lived ticket metadata using owning-module interfaces.
 7. Implement bounded, retry-safe, duplicate-safe outbox claiming and worker processing.
@@ -119,7 +121,7 @@ authorization source or durable store.
 - [x] Add the metadata-only transactional outbox enqueue primitive.
 - [x] Implement persisted device revocation with atomic outbox behavior.
 - [x] Add the persisted active-device authorization boundary.
-- [ ] Implement device registration/listing persistence after the fingerprint contract is fixed.
+- [x] Defer device registration/listing persistence until the M3 fingerprint and pairing contract.
 - [x] Implement agent, environment, and project domains plus persisted authorization/read behavior.
 - [x] Add the workspace agent identity and revocation domain boundary.
 - [x] Add the persisted active-agent authorization boundary.
@@ -133,7 +135,7 @@ authorization source or durable store.
 - [x] Implement worker outbox processing.
 - [x] Integrate the provider-neutral Flutter M2 surface.
 - [x] Activate the control-plane composition root after authentication approval.
-- [ ] Activate the mobile composition root after account authentication and device bootstrap.
+- [x] Activate the mobile composition root after account authentication and device bootstrap.
 - [x] Run full repository validation for the completed M2 scope.
 - [ ] Record M2 acceptance after mobile composition and real-provider login are exercised.
 
@@ -722,8 +724,9 @@ not a production rollback procedure.
 - A real OIDC provider/client registration and linked bootstrap user are still required before
   production login and the container-level authenticated-route acceptance check can be exercised;
   Compose intentionally requires explicit trust anchors.
-- The mobile app still needs the approved PKCE flow implemented plus a stable registered device-ID
-  source before `ControlPlaneShell` can replace the M0 local harness in `main.dart`.
+- Real-provider physical-device acceptance still requires a pre-registered active device ID owned
+  by the linked user. M3 replaces this explicit build-time bootstrap selector with pairing and
+  pinned device identity.
 - Public-key fingerprint encoding must be fixed with the M3 pairing contract before device
   persistence is exposed to clients.
 - Session signing and relay ticket cryptography belong to M3/M4; M2 must not ship a placeholder
