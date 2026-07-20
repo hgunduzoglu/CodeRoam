@@ -113,6 +113,7 @@ authorization source or durable store.
 - [x] Add the fail-closed verified-claims-to-local-user adapter.
 - [x] Add bounded explicit OIDC verifier trust-anchor configuration.
 - [x] Add signed OIDC ID-token verification with bounded shared JWKS retrieval.
+- [x] Load required OIDC and relay trust inputs through bounded runtime configuration.
 - [ ] Wire an approved authentication adapter into the control-plane runtime.
 - [x] Add the device identity and revocation domain contract.
 - [x] Add the metadata-only transactional outbox enqueue primitive.
@@ -197,6 +198,11 @@ authorization source or durable store.
   attacker-selected unknown key IDs cannot amplify provider traffic or starve a cold verifier.
   Consult that cache on every signature verification so even a locally known key must be refreshed
   within 30 seconds; failed refreshes clear stale key material and fail closed.
+- 2026-07-20: Require `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_JWKS_URL`,
+  `OIDC_SIGNING_ALGORITHM`, `RELAY_REGION`, and `POSTGRES_DSN` at control-plane startup. Preserve
+  OIDC trust-anchor spelling exactly for the auth-owned validators, trim only the non-identity DSN
+  and listen address, and reject an unbounded, control-bearing, or invalid numeric listen address
+  before it can reach logs or the HTTP server.
 - 2026-07-17: Require an authenticated actor to register or revoke a device. Accept only canonical
   opaque IDs, bounded names, explicit iOS/iPadOS/Android platforms, initialized X25519 public keys,
   and nonzero server-owned pairing times. Active-device authorization requires the exact owning
@@ -674,6 +680,12 @@ coverage proves removed keys fail and replacement keys succeed after refresh, wh
 refresh clears stale keys and remains unavailable without another cooldown fetch. Final security
 re-review found no remaining actionable issue.
 
+2026-07-20 control-plane runtime-config validation passed: 16 `cmd/api` cases under the race
+detector, focused `go vet`, `docker compose config --quiet`, and `git diff --check`. Coverage proves
+required OIDC/relay/database inputs, exact OIDC value retention, the explicit local listen default,
+numeric port bounds, UTF-8 and control-character rejection, and no environment values in
+configuration errors. Final security review found no actionable issue.
+
 ## Recovery and rollback
 
 Code slices remain independent commits on the M2 branch. Forward migrations must be compatible
@@ -689,8 +701,8 @@ not a production rollback procedure.
 
 ## Open risks
 
-- The approved generic OIDC design still needs bounded environment loading, provider registration,
-  and production composition before login can be exercised.
+- The approved generic OIDC design still needs provider registration and production composition
+  before login can be exercised.
 - The mobile app still needs the approved PKCE flow implemented plus a stable registered device-ID
   source before `ControlPlaneShell` can replace the M0 local harness in `main.dart`.
 - Public-key fingerprint encoding must be fixed with the M3 pairing contract before device

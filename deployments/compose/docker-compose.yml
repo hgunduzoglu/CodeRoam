@@ -34,6 +34,11 @@ services:
     environment:
       CONTROL_PLANE_HTTP_ADDR: :8080
       POSTGRES_DSN: postgres://postgres:postgres@postgres:5432/coderoam?sslmode=disable
+      RELAY_REGION: local
+      OIDC_ISSUER: "${OIDC_ISSUER:-https://identity.example/realms/coderoam}"
+      OIDC_AUDIENCE: "${OIDC_AUDIENCE:-coderoam-mobile}"
+      OIDC_JWKS_URL: "${OIDC_JWKS_URL:-https://identity.example/realms/coderoam/protocol/openid-connect/certs}"
+      OIDC_SIGNING_ALGORITHM: "${OIDC_SIGNING_ALGORITHM:-RS256}"
       REDIS_ADDR: redis:6379
     ports:
       - "8080:8080"

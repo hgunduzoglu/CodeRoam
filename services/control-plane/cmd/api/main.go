@@ -36,15 +36,18 @@ func main() {
 }
 
 func run(ctx context.Context) error {
+	config, err := loadAPIConfig(os.Getenv)
+	if err != nil {
+		return fmt.Errorf("load control-plane configuration: %w", err)
+	}
 	startupCtx, cancelStartup := context.WithTimeout(ctx, databaseStartupTimeout)
-	pool, err := postgresx.OpenPool(startupCtx, os.Getenv("POSTGRES_DSN"))
+	pool, err := postgresx.OpenPool(startupCtx, config.postgresDSN)
 	cancelStartup()
 	if err != nil {
 		return fmt.Errorf("start control-plane database: %w", err)
 	}
 	defer pool.Close()
 
-	addr := getenv("CONTROL_PLANE_HTTP_ADDR", ":8080")
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -55,14 +58,14 @@ func run(ctx context.Context) error {
 		})
 	})
 	server := &http.Server{
-		Addr:              addr,
+		Addr:              config.httpAddress,
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
-	log.Printf("CodeRoam control plane listening on %s", addr)
+	log.Printf("CodeRoam control plane listening on %s", config.httpAddress)
 	serverErrors := make(chan error, 1)
 	go func() {
 		serverErrors <- server.ListenAndServe()
@@ -92,11 +95,4 @@ func run(ctx context.Context) error {
 			return errors.Join(fmt.Errorf("wait for control-plane HTTP shutdown: %w", shutdownCtx.Err()), closeErr)
 		}
 	}
-}
-
-func getenv(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return fallback
 }
