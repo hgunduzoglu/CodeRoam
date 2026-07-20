@@ -44,6 +44,23 @@ func TestNewUser(t *testing.T) {
 		t.Fatalf("distinct local parts collapsed to %q", user.email)
 	}
 
+	emailAtLimit := strings.Repeat("a", 64) + "@" +
+		strings.Repeat("b", 63) + "." +
+		strings.Repeat("c", 63) + "." +
+		strings.Repeat("d", 61)
+	if len(emailAtLimit) != maxEmailBytes {
+		t.Fatalf("emailAtLimit length = %d", len(emailAtLimit))
+	}
+	if _, err := NewUser(
+		"2123456789abcdef0123456789abcdef",
+		emailAtLimit,
+		"Katherine Johnson",
+		createdAt,
+	); err != nil {
+		t.Fatalf("NewUser() maximum-length email error = %v", err)
+	}
+	emailOverLimit := emailAtLimit + "e"
+
 	tests := map[string]struct {
 		id          string
 		email       string
@@ -81,7 +98,7 @@ func TestNewUser(t *testing.T) {
 		},
 		"oversized email": {
 			id:          "0123456789abcdef0123456789abcdef",
-			email:       strings.Repeat("a", maxEmailBytes) + "@example.com",
+			email:       emailOverLimit,
 			displayName: "Ada",
 			createdAt:   createdAt,
 		},

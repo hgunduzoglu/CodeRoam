@@ -13,7 +13,7 @@ import (
 
 const (
 	encodedUserIDLength = 32
-	maxEmailBytes       = 320
+	maxEmailBytes       = 254
 	maxDisplayNameRunes = 128
 )
 
