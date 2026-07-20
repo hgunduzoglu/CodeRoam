@@ -60,15 +60,40 @@ void main() {
 
     expect(session.signInCalls, 0);
   });
+
+  test('signs out only from signed-in state and sanitizes failure', () async {
+    final session = _FakeOidcSession()..restoreResult = true;
+    final controller = OidcSessionController(session);
+    final states = <OidcSessionStatus>[];
+    controller.addListener(() => states.add(controller.status));
+    await controller.restore();
+    states.clear();
+
+    await controller.signOut();
+
+    expect(states, [OidcSessionStatus.signingOut, OidcSessionStatus.signedOut]);
+    expect(session.signOutCalls, 1);
+
+    final failedSession =
+        _FakeOidcSession()
+          ..restoreResult = true
+          ..signOutError = StateError('secure storage details');
+    final failedController = OidcSessionController(failedSession);
+    await failedController.restore();
+    await failedController.signOut();
+    expect(failedController.status, OidcSessionStatus.failed);
+  });
 }
 
 final class _FakeOidcSession implements OidcSession {
   bool restoreResult = false;
   bool signInResult = false;
   Object? signInError;
+  Object? signOutError;
   Completer<bool>? pendingRestore;
   int restoreCalls = 0;
   int signInCalls = 0;
+  int signOutCalls = 0;
 
   @override
   Future<bool> restore() async {
@@ -90,5 +115,11 @@ final class _FakeOidcSession implements OidcSession {
   Future<String> authenticationEvidence() async => 'opaque-evidence';
 
   @override
-  Future<void> signOut() async {}
+  Future<void> signOut() async {
+    signOutCalls++;
+    final error = signOutError;
+    if (error != null) {
+      throw error;
+    }
+  }
 }

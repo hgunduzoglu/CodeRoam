@@ -66,6 +66,27 @@ final class OidcSessionController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> signOut() async {
+    if (_disposed || _status != OidcSessionStatus.signedIn) {
+      return;
+    }
+    _status = OidcSessionStatus.signingOut;
+    notifyListeners();
+    try {
+      await _session.signOut();
+      if (_disposed) {
+        return;
+      }
+      _status = OidcSessionStatus.signedOut;
+    } catch (_) {
+      if (_disposed) {
+        return;
+      }
+      _status = OidcSessionStatus.failed;
+    }
+    notifyListeners();
+  }
+
   @override
   void dispose() {
     _disposed = true;
