@@ -52,7 +52,11 @@ func TestNewRemoteOIDCTokenVerifierRequiresValidConfiguration(t *testing.T) {
 		SigningAlgorithm: "RS256",
 	}
 	keySets := NewOIDCJWKSCache()
-	verifier, err := NewRemoteOIDCTokenVerifier(valid, keySets)
+	baseTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		t.Fatal("default HTTP transport is unavailable")
+	}
+	verifier, err := NewRemoteOIDCTokenVerifier(valid, keySets, baseTransport)
 	if err != nil {
 		t.Fatalf("NewRemoteOIDCTokenVerifier() error = %v", err)
 	}
@@ -63,14 +67,17 @@ func TestNewRemoteOIDCTokenVerifierRequiresValidConfiguration(t *testing.T) {
 
 	invalid := valid
 	invalid.SigningAlgorithm = "none"
-	if verifier, err := NewRemoteOIDCTokenVerifier(invalid, keySets); err == nil || verifier != nil {
+	if verifier, err := NewRemoteOIDCTokenVerifier(invalid, keySets, baseTransport); err == nil || verifier != nil {
 		t.Fatalf("NewRemoteOIDCTokenVerifier(invalid) = (%v, %v), want error", verifier, err)
 	}
-	if verifier, err := NewRemoteOIDCTokenVerifier(valid, nil); err == nil || verifier != nil {
+	if verifier, err := NewRemoteOIDCTokenVerifier(valid, nil, baseTransport); err == nil || verifier != nil {
 		t.Fatalf("NewRemoteOIDCTokenVerifier(valid, nil) = (%v, %v), want error", verifier, err)
 	}
-	if verifier, err := NewRemoteOIDCTokenVerifier(valid, &OIDCJWKSCache{}); err == nil || verifier != nil {
+	if verifier, err := NewRemoteOIDCTokenVerifier(valid, &OIDCJWKSCache{}, baseTransport); err == nil || verifier != nil {
 		t.Fatalf("NewRemoteOIDCTokenVerifier(valid, zero cache) = (%v, %v), want error", verifier, err)
+	}
+	if verifier, err := NewRemoteOIDCTokenVerifier(valid, keySets, nil); err == nil || verifier != nil {
+		t.Fatalf("NewRemoteOIDCTokenVerifier(valid, keySets, nil) = (%v, %v), want error", verifier, err)
 	}
 }
 

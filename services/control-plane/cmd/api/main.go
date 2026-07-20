@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -48,18 +47,17 @@ func run(ctx context.Context) error {
 	}
 	defer pool.Close()
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(healthResponse{
-			Service: "coderoam-control-plane",
-			Status:  "ok",
-			Time:    time.Now().UTC().Format(time.RFC3339),
-		})
-	})
+	oidcTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return errors.New("compose control-plane runtime: OIDC HTTP transport unavailable")
+	}
+	handler, err := newRuntimeHandler(pool, config, time.Now, oidcTransport)
+	if err != nil {
+		return fmt.Errorf("compose control-plane runtime: %w", err)
+	}
 	server := &http.Server{
 		Addr:              config.httpAddress,
-		Handler:           mux,
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,

@@ -87,6 +87,7 @@ func NewOIDCJWKSCache() *OIDCJWKSCache {
 func NewRemoteOIDCTokenVerifier(
 	config OIDCVerifierConfig,
 	keySets *OIDCJWKSCache,
+	baseTransport *http.Transport,
 ) (*RemoteOIDCTokenVerifier, error) {
 	if !config.valid() {
 		return nil, errors.New("invalid OIDC verifier configuration")
@@ -94,11 +95,10 @@ func NewRemoteOIDCTokenVerifier(
 	if keySets == nil || keySets.byKeySet == nil {
 		return nil, errors.New("OIDC JWKS cache is required")
 	}
-	base, ok := http.DefaultTransport.(*http.Transport)
-	if !ok {
+	if baseTransport == nil {
 		return nil, errors.New("OIDC HTTP transport unavailable")
 	}
-	transport := base.Clone()
+	transport := baseTransport.Clone()
 	transport.MaxResponseHeaderBytes = maxOIDCJWKSResponseHeader
 	client := &http.Client{
 		Transport: &oidcJWKSTransport{

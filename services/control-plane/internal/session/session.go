@@ -128,3 +128,8 @@ func validRelayRegion(value string) bool {
 	}
 	return true
 }
+
+// ValidRelayRegion reports whether value is a canonical bounded relay-region identifier.
+func ValidRelayRegion(value string) bool {
+	return validRelayRegion(value)
+}

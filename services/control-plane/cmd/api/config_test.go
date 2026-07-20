@@ -91,3 +91,41 @@ func TestLoadAPIConfigRejectsUnsafeHTTPAddress(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadAPIConfigRejectsInvalidTrustInputsWithoutValues(t *testing.T) {
+	valid := map[string]string{
+		"POSTGRES_DSN":           "postgres://control-plane",
+		"RELAY_REGION":           "local",
+		"OIDC_ISSUER":            "https://identity.example/realms/coderoam",
+		"OIDC_AUDIENCE":          "coderoam-mobile",
+		"OIDC_JWKS_URL":          "https://identity.example/realms/coderoam/keys",
+		"OIDC_SIGNING_ALGORITHM": "RS256",
+	}
+	for name, invalid := range map[string]struct {
+		key   string
+		value string
+	}{
+		"unsigned algorithm": {key: "OIDC_SIGNING_ALGORITHM", value: "none"},
+		"insecure issuer":    {key: "OIDC_ISSUER", value: "http://identity.invalid"},
+		"insecure JWKS":      {key: "OIDC_JWKS_URL", value: "http://identity.invalid/keys"},
+		"padded audience":    {key: "OIDC_AUDIENCE", value: " mobile"},
+		"control audience":   {key: "OIDC_AUDIENCE", value: "mobile\nother"},
+		"oversized audience": {key: "OIDC_AUDIENCE", value: strings.Repeat("a", 1025)},
+		"padded region":      {key: "RELAY_REGION", value: " local"},
+		"control region":     {key: "RELAY_REGION", value: "local\nother"},
+		"oversized region":   {key: "RELAY_REGION", value: strings.Repeat("a", 65)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			environment := func(key string) string {
+				if key == invalid.key {
+					return invalid.value
+				}
+				return valid[key]
+			}
+			_, err := loadAPIConfig(environment)
+			if err == nil || strings.Contains(err.Error(), invalid.value) {
+				t.Fatalf("loadAPIConfig() error = %v, want sanitized rejection", err)
+			}
+		})
+	}
+}

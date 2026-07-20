@@ -16,6 +16,11 @@ type OIDCVerifierConfig struct {
 	SigningAlgorithm string
 }
 
+// Valid reports whether every configured OIDC trust anchor is bounded and explicit.
+func (config OIDCVerifierConfig) Valid() bool {
+	return config.valid()
+}
+
 func (config OIDCVerifierConfig) valid() bool {
 	if _, err := NewOIDCIdentity(config.Issuer, "configured-subject"); err != nil {
 		return false

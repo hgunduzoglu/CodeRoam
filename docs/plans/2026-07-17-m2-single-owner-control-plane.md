@@ -20,8 +20,8 @@ integration. Those remain assigned to later milestones.
 ## Current state
 
 - M0 and M1 are complete and merged.
-- The control plane currently exposes only `/healthz`; no authentication provider or transport is
-  wired at runtime.
+- The control plane exposes public `/healthz` plus authenticated `/v1/projects` and `/v1/sessions`
+  through the composed OIDC, repository, and application-service graph.
 - Starter SQL runs through the transactional migration ledger, and the auth module now owns a
   PostgreSQL repository for validated users with typed duplicate and not-found failures. It also
   owns exact, case-sensitive OIDC issuer/subject bindings without treating email as identity.
@@ -54,11 +54,11 @@ integration. Those remain assigned to later milestones.
   client secret, the backend validates issuer, audience, signature, time claims, and exact subject,
   and registered device identity remains separate from account identity.
 - The provider-neutral HTTP boundary accepts one Bearer credential as opaque verification evidence,
-  exposes only a verified nonzero actor to handlers, and returns fixed credential-free JSON errors;
-  runtime provider composition remains blocked on the approved bootstrap decision.
+  exposes only a verified nonzero actor to handlers, and returns fixed credential-free JSON errors.
+  The production composition root now owns one OIDC verifier/cache and activates the M2 routes only
+  after every repository and service constructor succeeds.
 - The authenticated `GET /v1/projects` and metadata-only `POST /v1/sessions` routes share one
-  fail-closed handler composition and an OpenAPI 3.1 contract; runtime activation remains blocked
-  until the authentication adapter is approved.
+  fail-closed runtime handler composition and an OpenAPI 3.1 contract.
 - Flutter now has strict metadata models, a same-origin bounded HTTPS transport, a provider-neutral
   authenticated REST repository, touch project/session surfaces, and a lifecycle-owned composition
   shell. Production app activation still needs the approved authentication evidence and stable
@@ -114,7 +114,7 @@ authorization source or durable store.
 - [x] Add bounded explicit OIDC verifier trust-anchor configuration.
 - [x] Add signed OIDC ID-token verification with bounded shared JWKS retrieval.
 - [x] Load required OIDC and relay trust inputs through bounded runtime configuration.
-- [ ] Wire an approved authentication adapter into the control-plane runtime.
+- [x] Wire the approved OIDC authentication adapter into the control-plane runtime.
 - [x] Add the device identity and revocation domain contract.
 - [x] Add the metadata-only transactional outbox enqueue primitive.
 - [x] Implement persisted device revocation with atomic outbox behavior.
@@ -132,10 +132,10 @@ authorization source or durable store.
 - [x] Implement session authorization and retry-stable session metadata.
 - [x] Implement worker outbox processing.
 - [x] Integrate the provider-neutral Flutter M2 surface.
-- [ ] Activate the control-plane and mobile composition roots after authentication/device bootstrap
-  is approved.
+- [x] Activate the control-plane composition root after authentication approval.
+- [ ] Activate the mobile composition root after account authentication and device bootstrap.
 - [x] Run full repository validation for the completed M2 scope.
-- [ ] Record M2 acceptance after the blocked production composition is activated and exercised.
+- [ ] Record M2 acceptance after mobile composition and real-provider login are exercised.
 
 ## Decisions
 
@@ -203,6 +203,11 @@ authorization source or durable store.
   OIDC trust-anchor spelling exactly for the auth-owned validators, trim only the non-identity DSN
   and listen address, and reject an unbounded, control-bearing, or invalid numeric listen address
   before it can reach logs or the HTTP server.
+- 2026-07-20: Construct one process-lifetime OIDC verifier and validated JWKS cache, exact-identity
+  auth repository/service, device/workspace repositories, and metadata-only session service before
+  registering any M2 route. Keep `/healthz` public; route `/v1/projects` and `/v1/sessions` through
+  the same fail-closed actor boundary. Any invalid trust input or dependency leaves the handler nil
+  and prevents `ListenAndServe`.
 - 2026-07-17: Require an authenticated actor to register or revoke a device. Accept only canonical
   opaque IDs, bounded names, explicit iOS/iPadOS/Android platforms, initialized X25519 public keys,
   and nonzero server-owned pairing times. Active-device authorization requires the exact owning
@@ -686,6 +691,19 @@ required OIDC/relay/database inputs, exact OIDC value retention, the explicit lo
 numeric port bounds, UTF-8 and control-character rejection, and no environment values in
 configuration errors. Final security review found no actionable issue.
 
+2026-07-20 control-plane runtime-composition validation passed: 34 focused `cmd/api` cases and 429
+full control-plane cases under the race detector, focused and full `go vet`, `govulncheck ./...`,
+`go mod verify`, ShellCheck, Bash syntax, `git diff --check`, and the full PostgreSQL 17/Redis Compose
+infrastructure gate. Unit coverage proves no handler is returned for nil dependencies or invalid
+OIDC/relay configuration. The new real TLS JWKS plus PostgreSQL integration path verifies an exact
+linked identity, returns its owner-scoped project, starts and persists metadata-only session state,
+and exercises the same runtime handler used by the deployable. Final security re-review found no
+remaining blocking or medium issue.
+The Compose gate rebuilds the production image and validates required environment parsing, process
+startup, migrations, and public health. Authenticated traffic through the container remains a
+manual acceptance check against the real registered provider because the repository intentionally
+does not ship a private-key-bearing identity-provider fixture.
+
 ## Recovery and rollback
 
 Code slices remain independent commits on the M2 branch. Forward migrations must be compatible
@@ -701,8 +719,9 @@ not a production rollback procedure.
 
 ## Open risks
 
-- The approved generic OIDC design still needs provider registration and production composition
-  before login can be exercised.
+- A real OIDC provider/client registration and linked bootstrap user are still required before
+  production login and the container-level authenticated-route acceptance check can be exercised;
+  Compose intentionally requires explicit trust anchors.
 - The mobile app still needs the approved PKCE flow implemented plus a stable registered device-ID
   source before `ControlPlaneShell` can replace the M0 local harness in `main.dart`.
 - Public-key fingerprint encoding must be fixed with the M3 pairing contract before device

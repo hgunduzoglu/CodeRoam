@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/hgunduzoglu/coderoam/services/control-plane/internal/auth"
+	"github.com/hgunduzoglu/coderoam/services/control-plane/internal/session"
 )
 
 type apiConfig struct {
@@ -56,13 +57,20 @@ func loadAPIConfig(getenv func(string) string) (apiConfig, error) {
 	if err != nil {
 		return apiConfig{}, err
 	}
+	oidc := auth.OIDCVerifierConfig{
+		Issuer: issuer, Audience: audience, JWKSURL: jwksURL, SigningAlgorithm: algorithm,
+	}
+	if !oidc.Valid() {
+		return apiConfig{}, errors.New("control-plane OIDC configuration is invalid")
+	}
+	if !session.ValidRelayRegion(relayRegion) {
+		return apiConfig{}, errors.New("control-plane RELAY_REGION is invalid")
+	}
 	return apiConfig{
 		postgresDSN: postgresDSN,
 		httpAddress: httpAddress,
 		relayRegion: relayRegion,
-		oidc: auth.OIDCVerifierConfig{
-			Issuer: issuer, Audience: audience, JWKSURL: jwksURL, SigningAlgorithm: algorithm,
-		},
+		oidc:        oidc,
 	}, nil
 }
 

@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export RELAY_REGION=local
+export OIDC_ISSUER=https://identity.example/realms/coderoam
+export OIDC_AUDIENCE=coderoam-mobile
+export OIDC_JWKS_URL=https://identity.example/realms/coderoam/protocol/openid-connect/certs
+export OIDC_SIGNING_ALGORITHM=RS256
+
 compose=(docker compose --project-name coderoam-m1-smoke -f deployments/compose/docker-compose.yml)
 migration_ledger_query="SELECT string_agg(scope || ':' || version, ',' ORDER BY scope, version) FROM coderoam_meta.schema_migrations"
 resources_started=false
@@ -63,6 +69,9 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   (cd services/control-plane && \
     POSTGRES_TEST_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' \
       go test -count=1 -run '^TestRepositoryIntegration$' ./internal/auth)
+  (cd services/control-plane && \
+    POSTGRES_TEST_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' \
+      go test -count=1 -run '^TestRuntimeHandlerIntegration$' ./cmd/api)
   (cd services/control-plane && \
     POSTGRES_TEST_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' \
       go test -count=1 \
