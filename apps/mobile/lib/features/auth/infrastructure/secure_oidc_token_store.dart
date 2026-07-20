@@ -8,7 +8,13 @@ final class OidcTokenStoreException implements Exception {
   const OidcTokenStoreException();
 }
 
-final class SecureOidcTokenStore {
+abstract interface class OidcTokenStore {
+  Future<OidcTokenSet?> load();
+  Future<void> save(OidcTokenSet tokenSet);
+  Future<void> clear();
+}
+
+final class SecureOidcTokenStore implements OidcTokenStore {
   SecureOidcTokenStore({FlutterSecureStorage? storage})
     : _storage =
           storage ??
@@ -24,6 +30,7 @@ final class SecureOidcTokenStore {
 
   final FlutterSecureStorage _storage;
 
+  @override
   Future<OidcTokenSet?> load() async {
     final String? encoded;
     try {
@@ -59,6 +66,7 @@ final class SecureOidcTokenStore {
     }
   }
 
+  @override
   Future<void> save(OidcTokenSet tokenSet) async {
     try {
       await _storage.write(
@@ -73,6 +81,7 @@ final class SecureOidcTokenStore {
     }
   }
 
+  @override
   Future<void> clear() async {
     try {
       await _storage.delete(key: _storageKey);
