@@ -1,5 +1,5 @@
-CREATE SCHEMA IF NOT EXISTS preview;
-CREATE TABLE IF NOT EXISTS preview.sessions (
+CREATE SCHEMA preview;
+CREATE TABLE preview.sessions (
   id text PRIMARY KEY,
   owner_user_id text NOT NULL,
   project_id text NOT NULL,
@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS preview.sessions (
   revoked_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE TABLE IF NOT EXISTS preview.invitations (
+CREATE TABLE preview.invitations (
   id text PRIMARY KEY,
   preview_session_id text NOT NULL,
   recipient_user_id text,

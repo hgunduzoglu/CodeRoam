@@ -1,11 +1,22 @@
 package main
 
 import (
-	"encoding/json"
+	"context"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
+
+	"github.com/hgunduzoglu/coderoam/packages/go/postgresx"
+)
+
+const (
+	databaseStartupTimeout = 10 * time.Second
+	serverShutdownTimeout  = 10 * time.Second
 )
 
 type healthResponse struct {
@@ -15,28 +26,71 @@ type healthResponse struct {
 }
 
 func main() {
-	addr := getenv("CONTROL_PLANE_HTTP_ADDR", ":8080")
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(healthResponse{
-			Service: "coderoam-control-plane",
-			Status:  "ok",
-			Time:    time.Now().UTC().Format(time.RFC3339),
-		})
-	})
-	server := &http.Server{
-		Addr:              addr,
-		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx); err != nil {
+		log.Printf("CodeRoam control plane stopped: %v", err)
+		os.Exit(1)
 	}
-	log.Printf("CodeRoam control plane listening on %s", addr)
-	log.Fatal(server.ListenAndServe())
 }
 
-func getenv(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
+func run(ctx context.Context) error {
+	config, err := loadAPIConfig(os.Getenv)
+	if err != nil {
+		return fmt.Errorf("load control-plane configuration: %w", err)
 	}
-	return fallback
+	startupCtx, cancelStartup := context.WithTimeout(ctx, databaseStartupTimeout)
+	pool, err := postgresx.OpenPool(startupCtx, config.postgresDSN)
+	cancelStartup()
+	if err != nil {
+		return fmt.Errorf("start control-plane database: %w", err)
+	}
+	defer pool.Close()
+
+	oidcTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return errors.New("compose control-plane runtime: OIDC HTTP transport unavailable")
+	}
+	handler, err := newRuntimeHandler(pool, config, time.Now, oidcTransport)
+	if err != nil {
+		return fmt.Errorf("compose control-plane runtime: %w", err)
+	}
+	server := &http.Server{
+		Addr:              config.httpAddress,
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	log.Printf("CodeRoam control plane listening on %s", config.httpAddress)
+	serverErrors := make(chan error, 1)
+	go func() {
+		serverErrors <- server.ListenAndServe()
+	}()
+
+	select {
+	case err := <-serverErrors:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return fmt.Errorf("serve control-plane HTTP: %w", err)
+	case <-ctx.Done():
+		shutdownCtx, cancelShutdown := context.WithTimeout(context.WithoutCancel(ctx), serverShutdownTimeout)
+		defer cancelShutdown()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			closeErr := server.Close()
+			return errors.Join(fmt.Errorf("shutdown control-plane HTTP: %w", err), closeErr)
+		}
+		select {
+		case err := <-serverErrors:
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				return fmt.Errorf("stop control-plane HTTP: %w", err)
+			}
+			return nil
+		case <-shutdownCtx.Done():
+			closeErr := server.Close()
+			return errors.Join(fmt.Errorf("wait for control-plane HTTP shutdown: %w", shutdownCtx.Err()), closeErr)
+		}
+	}
 }

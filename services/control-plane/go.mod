@@ -1,3 +1,27 @@
 module github.com/hgunduzoglu/coderoam/services/control-plane
 
 go 1.26.0
+
+require (
+	github.com/coreos/go-oidc/v3 v3.20.0
+	github.com/go-jose/go-jose/v4 v4.1.4
+	github.com/hgunduzoglu/coderoam/packages/go/cryptox v0.0.0
+	github.com/hgunduzoglu/coderoam/packages/go/ids v0.0.0
+	github.com/hgunduzoglu/coderoam/packages/go/postgresx v0.0.0
+	github.com/jackc/pgx/v5 v5.10.0
+)
+
+require (
+	github.com/jackc/pgpassfile v1.0.0 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
+	github.com/jackc/puddle/v2 v2.2.2 // indirect
+	golang.org/x/oauth2 v0.36.0 // indirect
+	golang.org/x/sync v0.21.0 // indirect
+	golang.org/x/text v0.39.0 // indirect
+)
+
+replace github.com/hgunduzoglu/coderoam/packages/go/cryptox => ../../packages/go/cryptox
+
+replace github.com/hgunduzoglu/coderoam/packages/go/ids => ../../packages/go/ids
+
+replace github.com/hgunduzoglu/coderoam/packages/go/postgresx => ../../packages/go/postgresx

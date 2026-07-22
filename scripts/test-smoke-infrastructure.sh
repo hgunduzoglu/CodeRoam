@@ -3,9 +3,18 @@ set -euo pipefail
 
 source ./scripts/smoke-infrastructure.sh
 
+if git grep -n 'IF NOT EXISTS' -- ':(glob)services/control-plane/internal/*/migrations/*.sql'; then
+  echo "starter migrations must fail closed on pre-ledger database objects" >&2
+  exit 1
+fi
+
 expected_compose=(docker compose --project-name coderoam-m1-smoke -f deployments/compose/docker-compose.yml)
 if [[ "${compose[*]}" != "${expected_compose[*]}" ]]; then
   echo "smoke test does not use the isolated Compose project" >&2
+  exit 1
+fi
+if [[ "$migration_ledger_query" != *"ORDER BY scope, version"* ]]; then
+  echo "smoke migration ledger query does not order multiple scope versions" >&2
   exit 1
 fi
 
@@ -13,7 +22,7 @@ curl() {
   return 7
 }
 
-if error="$(assert_http_health http://localhost:1/healthz unavailable-service 2>&1)"; then
+if error="$(assert_http_health http://localhost:1/health unavailable-service 2>&1)"; then
   echo "assert_http_health unexpectedly succeeded" >&2
   exit 1
 fi

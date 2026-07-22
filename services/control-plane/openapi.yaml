@@ -1,0 +1,190 @@
+openapi: 3.1.0
+info:
+  title: CodeRoam Control Plane API
+  version: 0.2.0
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+  - url: /
+    description: Current control-plane origin
+paths:
+  /v1/sessions:
+    post:
+      operationId: startSessionMetadata
+      summary: Create or reconcile authorized session metadata without issuing a relay ticket
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StartSessionRequest" }
+      responses:
+        "200":
+          description: Metadata only; not a relay ticket or connection capability
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionMetadata" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/AccessDenied" }
+        "408": { $ref: "#/components/responses/RequestTerminated" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "503":
+          description: Unavailable or commit outcome unknown; retry the same ID and inputs
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [error]
+                properties:
+                  error:
+                    type: object
+                    additionalProperties: false
+                    required: [code]
+                    properties:
+                      code:
+                        type: string
+                        enum: [sessions_unavailable, session_outcome_unknown]
+  /v1/projects:
+    get:
+      operationId: listProjects
+      summary: List projects owned by the authenticated user
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: Bounded newest-first project summaries
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [projects]
+                properties:
+                  projects:
+                    type: array
+                    maxItems: 100
+                    items:
+                      $ref: "#/components/schemas/ProjectSummary"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/AccessDenied"
+        "408":
+          $ref: "#/components/responses/RequestTerminated"
+        "503":
+          $ref: "#/components/responses/ProjectsUnavailable"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    OpaqueId:
+      type: string
+      pattern: "^[0-9a-f]{32}$"
+    StartSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [sessionId, deviceId, agentId, projectId]
+      properties:
+        sessionId: { $ref: "#/components/schemas/OpaqueId" }
+        deviceId: { $ref: "#/components/schemas/OpaqueId" }
+        agentId: { $ref: "#/components/schemas/OpaqueId" }
+        projectId: { $ref: "#/components/schemas/OpaqueId" }
+    SessionMetadata:
+      type: object
+      additionalProperties: false
+      required: [id, deviceId, agentId, projectId, relayRegion, startedAt, capability]
+      properties:
+        id: { $ref: "#/components/schemas/OpaqueId" }
+        deviceId: { $ref: "#/components/schemas/OpaqueId" }
+        agentId: { $ref: "#/components/schemas/OpaqueId" }
+        projectId: { $ref: "#/components/schemas/OpaqueId" }
+        relayRegion:
+          type: string
+          pattern: "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$"
+        startedAt: { type: string, format: date-time }
+        capability: { type: string, const: metadata-only }
+    ProjectSummary:
+      type: object
+      additionalProperties: false
+      required: [id, environmentId, agentId, name, environmentName, createdAt]
+      properties:
+        id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        environmentId:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        agentId:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        name:
+          type: string
+          minLength: 1
+        environmentName:
+          type: string
+          minLength: 1
+        createdAt:
+          type: string
+          format: date-time
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code]
+          properties:
+            code:
+              type: string
+  responses:
+    InvalidRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthenticated:
+      description: Authentication failed
+      headers:
+        WWW-Authenticate:
+          schema: { type: string }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    AccessDenied:
+      description: Access denied
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    RequestTerminated:
+      description: Request canceled or timed out
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    UnsupportedMediaType:
+      description: Request body must use application/json
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ProjectsUnavailable:
+      description: Project listing unavailable
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
