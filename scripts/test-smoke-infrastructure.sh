@@ -22,7 +22,7 @@ curl() {
   return 7
 }
 
-if error="$(assert_http_health http://localhost:1/healthz unavailable-service 2>&1)"; then
+if error="$(assert_http_health http://localhost:1/health unavailable-service 2>&1)"; then
   echo "assert_http_health unexpectedly succeeded" >&2
   exit 1
 fi

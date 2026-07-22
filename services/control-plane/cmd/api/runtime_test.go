@@ -37,10 +37,10 @@ func TestNewRuntimeHandlerActivatesHealthAndAuthenticatedRoutes(t *testing.T) {
 	}
 
 	healthResponse := httptest.NewRecorder()
-	handler.ServeHTTP(healthResponse, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	handler.ServeHTTP(healthResponse, httptest.NewRequest(http.MethodGet, "/health", nil))
 	if healthResponse.Code != http.StatusOK ||
 		healthResponse.Header().Get("Content-Type") != "application/json" {
-		t.Fatalf("GET /healthz status = %d headers = %v", healthResponse.Code, healthResponse.Header())
+		t.Fatalf("GET /health status = %d headers = %v", healthResponse.Code, healthResponse.Header())
 	}
 	projectResponse := httptest.NewRecorder()
 	handler.ServeHTTP(projectResponse, httptest.NewRequest(http.MethodGet, "/v1/projects", nil))

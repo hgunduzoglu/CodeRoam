@@ -69,7 +69,7 @@ func newRuntimeHandler(
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(response http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /health", func(response http.ResponseWriter, _ *http.Request) {
 		checkedAt := now().UTC()
 		if checkedAt.IsZero() {
 			http.Error(response, "health unavailable", http.StatusServiceUnavailable)

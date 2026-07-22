@@ -10,6 +10,7 @@ missing values before opening its HTTP listener. The mobile app is a public PKCE
 client secret belongs in this service. Compose requires these values explicitly; copy `.env.example`
 for the nonfunctional local placeholder, or provide the real registered provider values.
 
-`GET /healthz` is public. `GET /v1/projects` and metadata-only `POST /v1/sessions` require a signed
-OIDC ID token whose exact issuer/subject pair is already linked to a local user in
-`auth.oidc_identities`. Invalid credentials return fixed errors and are never logged.
+`GET /health` is public; its path intentionally avoids Cloud Run's reserved URL paths ending in
+`z`. `GET /v1/projects` and metadata-only `POST /v1/sessions` require a signed OIDC ID token whose
+exact issuer/subject pair is already linked to a local user in `auth.oidc_identities`. Invalid
+credentials return fixed errors and are never logged.

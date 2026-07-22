@@ -99,8 +99,8 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     POSTGRES_TEST_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' \
       go test -count=1 -run '^TestRunWorkerIntegration$' ./cmd/worker)
 
-  assert_http_health http://localhost:8080/healthz coderoam-control-plane
-  assert_http_health http://localhost:8090/healthz coderoam-relay
+  assert_http_health http://localhost:8080/health coderoam-control-plane
+  assert_http_health http://localhost:8090/health coderoam-relay
   assert_service_running worker
   succeeded=true
 fi

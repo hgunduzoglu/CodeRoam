@@ -11,7 +11,7 @@ import (
 func main() {
 	addr := getenv("RELAY_HTTP_ADDR", ":8090")
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{
 			"service": "coderoam-relay",

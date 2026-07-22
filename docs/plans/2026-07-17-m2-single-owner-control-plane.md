@@ -20,7 +20,7 @@ or GitHub integration. Those remain assigned to later milestones.
 ## Current state
 
 - M0 and M1 are complete and merged.
-- The control plane exposes public `/healthz` plus authenticated `/v1/projects` and `/v1/sessions`
+- The control plane exposes public `/health` plus authenticated `/v1/projects` and `/v1/sessions`
   through the composed OIDC, repository, and application-service graph.
 - Starter SQL runs through the transactional migration ledger, and the auth module now owns a
   PostgreSQL repository for validated users with typed duplicate and not-found failures. It also
@@ -207,7 +207,7 @@ authorization source or durable store.
   before it can reach logs or the HTTP server.
 - 2026-07-20: Construct one process-lifetime OIDC verifier and validated JWKS cache, exact-identity
   auth repository/service, device/workspace repositories, and metadata-only session service before
-  registering any M2 route. Keep `/healthz` public; route `/v1/projects` and `/v1/sessions` through
+  registering any M2 route. Keep `/health` public; route `/v1/projects` and `/v1/sessions` through
   the same fail-closed actor boundary. Any invalid trust input or dependency leaves the handler nil
   and prevents `ListenAndServe`.
 - 2026-07-17: Require an authenticated actor to register or revoke a device. Accept only canonical
@@ -367,6 +367,8 @@ authorization source or durable store.
   trust-bound routes. Changing origin, device, evidence provider, transport factory, or removing the
   shell immediately revokes old controllers and closes transport state, then removes stale routes
   after the current frame so late responses cannot reopen an old workspace.
+- 2026-07-22: Expose deployable health checks at `/health`, not `/healthz`, because Cloud Run
+  reserves some URL paths ending in `z` before requests reach the container.
 
 ## Validation
 
