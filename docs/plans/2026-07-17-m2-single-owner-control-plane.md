@@ -137,7 +137,7 @@ authorization source or durable store.
 - [x] Activate the control-plane composition root after authentication approval.
 - [x] Activate the mobile composition root after account authentication and device bootstrap.
 - [x] Run full repository validation for the completed M2 scope.
-- [ ] Record M2 acceptance after mobile composition and real-provider login are exercised.
+- [x] Record M2 acceptance after mobile composition and real-provider login are exercised.
 
 ## Decisions
 
@@ -369,6 +369,12 @@ authorization source or durable store.
   after the current frame so late responses cannot reopen an old workspace.
 - 2026-07-22: Expose deployable health checks at `/health`, not `/healthz`, because Cloud Run
   reserves some URL paths ending in `z` before requests reach the container.
+- 2026-07-22: Keep environment-specific database role names outside module-owned migrations. Apply
+  the deployment-owned runtime grant after migrations, repeatably and in one transaction. Grant
+  only the schema/table access used by the M2 runtime plus one non-trust column per `FOR SHARE`
+  target, because PostgreSQL requires some column-level `UPDATE` privilege for row locking. There
+  is no schema, data, index, Redis, or outbox transition; recovery revokes the exact grants without
+  rewriting durable data.
 
 ## Validation
 
@@ -719,6 +725,20 @@ authenticated M2 shell; final security review found no actionable P1/P2 issue. P
 and M0 touch behavior did not change. The exact real-provider redirect, linked identity, active
 device ownership, and authenticated physical-device route remain the manual acceptance boundary.
 
+2026-07-22 real-provider iPhone acceptance passed against the deployed Cloud Run control plane and
+ZITADEL Authorization Code plus PKCE client. The public `/health` endpoint returned HTTP 200, the
+exact issuer/subject binding authenticated the linked owner, `GET /v1/projects` returned that
+owner's CodeRoam project for the registered iPhone device, and `POST /v1/sessions` preserved its
+caller-stable request across an initial unavailable result. That unavailable result exposed a
+deployment grant gap: PostgreSQL row locking required column-level update privilege on each
+`FOR SHARE` target. After applying the bounded repeatable runtime grant, retrying the same request
+returned metadata ready with no relay capability, and the local touch workspace opened
+successfully. Repository integration coverage now executes these row locks and session insertion
+as the constrained runtime role and rejects broader write access to ownership, key, revocation,
+and registered-root fields. This acceptance records one physical iPhone only; iPad and Android
+device coverage, plus manual foreign-device/logout negative checks, were explicitly deferred for
+this closure and are not claimed.
+
 ## Recovery and rollback
 
 Code slices remain independent commits on the M2 branch. Forward migrations must be compatible
@@ -734,12 +754,11 @@ not a production rollback procedure.
 
 ## Open risks
 
-- A real OIDC provider/client registration and linked bootstrap user are still required before
-  production login and the container-level authenticated-route acceptance check can be exercised;
-  Compose intentionally requires explicit trust anchors.
-- Real-provider physical-device acceptance still requires a pre-registered active device ID owned
-  by the linked user. M3 replaces this explicit build-time bootstrap selector with pairing and
-  pinned device identity.
+- Real-provider physical-device acceptance is recorded only on one iPhone. iPad, Android phone,
+  Android tablet, and manual foreign-device/logout negative checks were deferred by the user;
+  automated ownership, foreign-device, and logout lifecycle coverage remains in the repository.
+- The dev deployment still uses a pre-registered active device ID. M3 replaces this explicit
+  build-time bootstrap selector with pairing and pinned device identity.
 - Public-key fingerprint encoding must be fixed with the M3 pairing contract before device
   persistence is exposed to clients.
 - Session signing and relay ticket cryptography belong to M3/M4; M2 must not ship a placeholder
