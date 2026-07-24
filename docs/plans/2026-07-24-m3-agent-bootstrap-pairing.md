@@ -277,7 +277,7 @@ compatibility seams rather than delivered as one large file replacement.
 - [x] Inspect the merged M2 implementation, applicable instructions, schemas, contracts, and trust
   boundaries.
 - [x] Define the M3 ExecPlan and create `feat/m3-agent-bootstrap-pairing` from `origin/main`.
-- [ ] Implement and test the canonical X25519 fingerprint codec without adding a dependency.
+- [x] Implement and test the canonical X25519 fingerprint codec without adding a dependency.
 - [ ] Complete the XXpsk3 Go/mobile interoperability spike and dependency risk report.
 - [ ] Obtain explicit approval for Noise/mobile FFI, QR, and release-attestation dependencies.
 - [ ] Add and regenerate the additive M3 Protobuf contracts.
