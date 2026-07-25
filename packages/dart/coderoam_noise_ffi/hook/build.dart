@@ -4,6 +4,7 @@ import 'package:code_assets/code_assets.dart';
 import 'package:hooks/hooks.dart';
 
 import 'cargo_process.dart';
+import 'rust_build_target.dart';
 
 void main(List<String> arguments) async {
   await build(arguments, (input, output) async {
@@ -12,17 +13,25 @@ void main(List<String> arguments) async {
     }
 
     final code = input.config.code;
-    final rustTarget = switch ((code.targetOS, code.targetArchitecture)) {
-      (OS.macOS, Architecture.arm64) => 'aarch64-apple-darwin',
-      (OS.macOS, Architecture.x64) => 'x86_64-apple-darwin',
-      (OS.linux, Architecture.arm64) => 'aarch64-unknown-linux-gnu',
-      (OS.linux, Architecture.x64) => 'x86_64-unknown-linux-gnu',
-      _ => throw BuildError(
+    late final RustBuildTarget rustBuildTarget;
+    try {
+      rustBuildTarget = resolveRustBuildTarget(
+        operatingSystem: code.targetOS,
+        architecture: code.targetArchitecture,
+        iOSSDK: code.targetOS == OS.iOS ? code.iOS.targetSdk : null,
+        iOSVersion: code.targetOS == OS.iOS ? code.iOS.targetVersion : null,
+        androidAPI: code.targetOS == OS.android
+            ? code.android.targetNdkApi
+            : null,
+        compiler: code.cCompiler?.compiler,
+      );
+    } on UnsupportedError {
+      throw BuildError(
         message:
-            'The current CodeRoam Noise FFI probe supports macOS and Linux '
-            'hosts only, not ${code.targetOS}/${code.targetArchitecture}.',
-      ),
-    };
+            'The CodeRoam Noise FFI probe does not support '
+            '${code.targetOS}/${code.targetArchitecture}.',
+      );
+    }
     final manifest = input.packageRoot.resolve('rust/Cargo.toml');
     final lockfile = input.packageRoot.resolve('rust/Cargo.lock');
     final source = input.packageRoot.resolve('rust/src/lib.rs');
@@ -30,6 +39,9 @@ void main(List<String> arguments) async {
       'hook/cargo_process.dart',
     );
     final cargoRunner = input.packageRoot.resolve('hook/cargo_runner.dart');
+    final rustBuildTargetSource = input.packageRoot.resolve(
+      'hook/rust_build_target.dart',
+    );
     final cargoTargetDirectory = input.outputDirectory.resolve('cargo/');
 
     output.dependencies.addAll([
@@ -38,6 +50,7 @@ void main(List<String> arguments) async {
       source,
       cargoProcessSource,
       cargoRunner,
+      rustBuildTargetSource,
     ]);
 
     late final int exitCode;
@@ -51,13 +64,14 @@ void main(List<String> arguments) async {
           '--manifest-path',
           manifest.toFilePath(),
           '--target',
-          rustTarget,
+          rustBuildTarget.triple,
         ],
         workingDirectory: input.packageRoot.toFilePath(),
         environment: {
           ...Platform.environment,
           'CARGO_TARGET_DIR': cargoTargetDirectory.toFilePath(),
           'CARGO_TERM_COLOR': 'never',
+          ...rustBuildTarget.environment,
         },
         runnerScript: cargoRunner,
         scratchDirectory: input.outputDirectory.resolve('cargo-process/'),
@@ -74,7 +88,7 @@ void main(List<String> arguments) async {
     }
 
     final library = cargoTargetDirectory.resolve(
-      '$rustTarget/release/'
+      '${rustBuildTarget.triple}/release/'
       '${code.targetOS.dylibFileName('coderoam_noise_ffi')}',
     );
     if (!await File.fromUri(library).exists()) {

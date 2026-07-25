@@ -187,7 +187,8 @@ Dart resolves that symbol through `@Native` and verifies ABI version 1. Cargo ru
 POSIX process group, and a timeout regression verifies that both a fake Cargo process and its
 persistent child are terminated before the hook reports failure.
 
-`make check-noise-ffi` passes on the macOS arm64 host. The package is not yet a dependency of the
-mobile app, and the hook intentionally rejects iOS, Android, and other unsupported targets.
-Cross-target builds, opaque state handles, secret/key buffer ownership, zeroization, and mobile
-integration remain later slices.
+`make check-noise-ffi` passes on the macOS arm64 host. The mobile app now consumes the internal
+package, while `make check-noise-ffi-mobile` compiles and bundles the same Rust core for an unsigned
+iOS device build and an Android APK. The mobile package test invokes the bundled ABI on the host.
+Opaque state handles, secret/key buffer ownership, zeroization, and runtime invocation on physical
+devices remain later slices.

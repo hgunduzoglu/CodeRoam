@@ -15,7 +15,7 @@ GO_MODULES := \
 	protocol/gen/go
 
 .PHONY: help bootstrap bootstrap-mobile proto proto-check fmt fmt-go lint lint-go test test-go \
-	test-noise-interop check-noise-ffi \
+	test-noise-interop check-noise-ffi check-noise-ffi-mobile \
 	test-flutter test-web test-protocol test-infrastructure check-flutter check-web build build-go \
 	build-flutter build-web up down migrate agent-skills-check
 
@@ -30,6 +30,7 @@ help:
 	@echo "test-go            Run every Go module test suite"
 	@echo "test-noise-interop Run the Go/Rust Noise XXpsk3 interoperability test"
 	@echo "check-noise-ffi    Validate the host Dart/Rust Noise FFI probe"
+	@echo "check-noise-ffi-mobile Build the Noise FFI probe for iOS and Android"
 	@echo "test-infrastructure Smoke-test Compose readiness and migrations"
 	@echo "check-flutter       Check, test, and build the Flutter app"
 	@echo "check-web           Check, test, and build both WebViews"
@@ -100,6 +101,12 @@ check-noise-ffi:
 	cargo fmt --check --manifest-path packages/dart/coderoam_noise_ffi/rust/Cargo.toml
 	cargo clippy --locked --manifest-path packages/dart/coderoam_noise_ffi/rust/Cargo.toml -- -D warnings
 	cd packages/dart/coderoam_noise_ffi && dart test
+
+check-noise-ffi-mobile:
+	cd apps/mobile && flutter pub get --enforce-lockfile
+	cd apps/mobile && flutter test test/features/pairing/infrastructure/noise_core_probe_test.dart
+	cd apps/mobile && flutter build ios --debug --no-codesign
+	cd apps/mobile && flutter build apk --debug
 
 test-flutter:
 	@if command -v flutter >/dev/null && [ -d apps/mobile/android ]; then cd apps/mobile && flutter test; else echo "skip flutter tests: run make bootstrap-mobile"; fi

@@ -284,7 +284,9 @@ compatibility seams rather than delivered as one large file replacement.
 - [x] Add a reproducible Go/Rust XXpsk3 success and wrong-PSK interoperability harness.
 - [x] Bundle the approved `snow` core through a host `package_ffi` build hook and invoke a
   non-secret-bearing Dart ABI probe.
-- [ ] Obtain explicit approval for QR and release-attestation dependencies.
+- [x] Compile and bundle the non-secret-bearing Noise ABI probe in unsigned iOS and Android
+  Flutter builds.
+- [x] Obtain explicit approval for QR and release-attestation dependencies.
 - [ ] Prove the approved native core through Flutter FFI on iOS and Android.
 - [ ] Add and regenerate the additive M3 Protobuf contracts.
 - [ ] Implement purpose-bound Ed25519 pairing ticket signing and verification.
@@ -328,6 +330,12 @@ compatibility seams rather than delivered as one large file replacement.
 - 2026-07-25: Introduce the FFI boundary with a non-secret-bearing ABI probe before adding opaque
   handshake handles. Use Dart code-assets build hooks, fail closed on unsupported targets or Cargo
   failures, and keep the package disconnected from the mobile app until iOS/Android builds pass.
+- 2026-07-26: Connect the internal FFI package only after unsigned iOS and Android builds compile
+  and bundle the approved core. Keep physical-device invocation and all secret-bearing handles
+  deferred to reviewed pairing slices.
+- 2026-07-26: Accept the user's explicit authorization to add the remaining M3 QR,
+  release-attestation, and implementation dependencies without another approval pause. Still pin,
+  audit, minimize, and document every selected dependency before use.
 - 2026-07-24: Sign exact pairing ticket claims with Ed25519 and separate pairing purpose from future
   session purpose. Keep signing material only in the control plane and verification keys in the
   relay; keep ticket/replay state short-lived and metadata-only.
@@ -420,11 +428,11 @@ an iPhone-only run.
 
 ## Open risks
 
-- The mobile Noise implementation is not approved. The visible pure-Dart candidate has limited
-  adoption and its direct XXpsk3 support needs proof. A maintained native core through Flutter FFI
-  may be safer but adds build, audit, and platform complexity.
-- Camera scanning/rendering and release provenance may add dependencies or external GitHub actions.
-  Their exact packages and immutable versions require explicit approval before implementation.
+- The approved native mobile Noise core now builds for iOS and Android, but secret-bearing handles,
+  zeroization, panic containment, cancellation, and physical-device behavior still need proof.
+- Camera scanning/rendering and release provenance will add dependencies or external GitHub
+  actions. Their exact packages and immutable versions still require selection, audit, and pinning
+  before implementation.
 - An unauthenticated bootstrap endpoint and pairing relay route create denial-of-service pressure.
   Rate limits, admission bounds, timeouts, queue caps, and metrics need failure-injection evidence.
 - Keychain/Keystore accessibility, backup/restore, uninstall/reinstall, and device-lock behavior
