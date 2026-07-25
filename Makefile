@@ -15,6 +15,7 @@ GO_MODULES := \
 	protocol/gen/go
 
 .PHONY: help bootstrap bootstrap-mobile proto proto-check fmt fmt-go lint lint-go test test-go \
+	test-noise-interop \
 	test-flutter test-web test-protocol test-infrastructure check-flutter check-web build build-go \
 	build-flutter build-web up down migrate agent-skills-check
 
@@ -27,6 +28,7 @@ help:
 	@echo "lint               Run all configured linters"
 	@echo "test               Run all configured test suites"
 	@echo "test-go            Run every Go module test suite"
+	@echo "test-noise-interop Run the Go/Rust Noise XXpsk3 interoperability test"
 	@echo "test-infrastructure Smoke-test Compose readiness and migrations"
 	@echo "check-flutter       Check, test, and build the Flutter app"
 	@echo "check-web           Check, test, and build both WebViews"
@@ -86,6 +88,9 @@ test-go:
 			echo "==> skip $$module: no generated Go packages yet"; \
 		fi; \
 	done
+
+test-noise-interop:
+	./scripts/test-noise-interop.sh
 
 test-flutter:
 	@if command -v flutter >/dev/null && [ -d apps/mobile/android ]; then cd apps/mobile && flutter test; else echo "skip flutter tests: run make bootstrap-mobile"; fi

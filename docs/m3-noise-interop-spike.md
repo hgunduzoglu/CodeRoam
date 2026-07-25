@@ -1,6 +1,7 @@
 # M3 Noise XXpsk3 Interoperability Spike
 
 Date: 2026-07-24
+Updated: 2026-07-25
 
 ## Purpose
 
@@ -11,8 +12,8 @@ dependency. The candidate must implement the exact approved suite:
 Noise_XXpsk3_25519_ChaChaPoly_BLAKE2s
 ```
 
-This spike does not approve a dependency, change the pairing protocol, or add code to the mobile or
-agent runtime.
+This spike report supplied the evidence for the approval recorded below. It adds no dependency or
+code to the mobile or agent runtime.
 
 ## Acceptance criteria
 
@@ -86,7 +87,7 @@ WRONG_PSK=1 node run.mjs
 WRONG_PROLOGUE=1 node run.mjs
 govulncheck ./...
 cargo test --locked
-cargo clippy --locked -- -D warnings
+cargo clippy --locked --manifest-path rust-peer/Cargo.toml -- -D warnings
 ```
 
 `govulncheck` found no reachable vulnerability in the disposable Go program. It also reported 23
@@ -96,6 +97,19 @@ pin supported transitive versions explicitly and pass the repository-wide vulner
 
 The Rust build and Clippy passed. No iOS or Android Rust target was installed in this environment,
 so the native-core result is not yet a Flutter/iOS/Android build result.
+
+The committed harness was subsequently validated with `make test-noise-interop` from the repository
+root and the remaining commands from `tests/noise-interop`:
+
+```text
+cargo clippy --locked --manifest-path rust-peer/Cargo.toml -- -D warnings
+GOWORK=off go vet ./...
+GOWORK=off CODEROAM_NOISE_RUST_PEER="$PWD/rust-peer/target/debug/coderoam-noise-rust-peer" \
+  go test -race ./...
+GOWORK=off govulncheck ./...
+```
+
+The pinned Go module reported no known reachable vulnerabilities.
 
 ## Pure-Dart candidate result
 
@@ -111,11 +125,11 @@ so the native-core result is not yet a Flutter/iOS/Android build result.
 The package also has a much smaller adoption and review surface than the native candidate. It is
 rejected for M3 rather than extended inside CodeRoam.
 
-## Protocol mismatch discovered
+## Protocol mismatch and resolution
 
-The CodeRoam development specification and current M3 ExecPlan require a random 128-bit pairing
-secret. Noise revision 34 defines PSK mode for a 32-byte shared secret and says PSKs must carry 256
-bits of entropy.
+The pre-approval CodeRoam development specification and initial M3 ExecPlan required a random
+128-bit pairing secret. Noise revision 34 defines PSK mode for a 32-byte shared secret and says PSKs
+must carry 256 bits of entropy.
 
 Passing the 16-byte product secret directly is rejected by the evaluated implementations. Hashing
 or expanding it to 32 bytes would satisfy the API length but would retain only 128 bits of entropy
@@ -130,13 +144,13 @@ Options:
 3. Add a password-authenticated key exchange before Noise. This adds a second cryptographic
    protocol and is outside the approved M3 scope.
 
-The recommended option is 1. It follows the Noise specification without a CodeRoam-specific
-key-stretching construction. This is a user-visible protocol decision and requires explicit
-approval before changing `PRODUCT.md`, `docs/development-spec.md`, Protobuf bounds, or UI copy.
+Option 1 was approved on 2026-07-25. It follows the Noise specification without a CodeRoam-specific
+key-stretching construction. The development specification and M3 ExecPlan now require the 256-bit
+secret; Protobuf bounds and UI copy will change with their owning implementation slices.
 
-## Dependency recommendation
+## Dependency direction
 
-Subject to explicit approval:
+Approved for prototyping and test-harness use:
 
 - Go agent: evaluate `github.com/flynn/noise` v1.1.0 with current, explicitly pinned
   `golang.org/x/crypto` and `golang.org/x/sys`; retain only the handshake state and discard
@@ -151,15 +165,15 @@ Subject to explicit approval:
 security audit. Before adoption, the exact feature set, transitive dependency graph, mobile target
 builds, license notices, vulnerability results, and C ABI must receive adversarial review.
 
-## Decision gate
+## Approved direction
 
-No runtime dependency has been added. The next implementation slice is blocked on explicit approval
-of all three items:
+On 2026-07-25 the user approved all three evaluated items:
 
 1. use a random 256-bit pairing secret with a grouped 52-character Base32 manual fallback;
 2. use `flynn/noise` v1.1.0 for the Go agent, with supported transitive crypto versions pinned; and
 3. prototype `snow` v0.10.0 through a narrow Flutter FFI package for iOS and Android.
 
-After approval, the next slice will add only the reproducible cross-language handshake harness and
-its first success/wrong-PSK tests. Production pairing, relay, persistence, and UI wiring remain
-separate later slices.
+This slice adds the reproducible cross-language handshake harness at `tests/noise-interop`, exposed
+through `make test-noise-interop`, with success and wrong-PSK coverage. The dependency remains
+isolated to the test module: production pairing, Flutter FFI, relay, persistence, and UI wiring
+remain separate later slices.

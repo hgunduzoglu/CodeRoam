@@ -100,12 +100,12 @@ this representation after a collision and malformed-key preflight.
 
 ### Pairing attempt and secret lifecycle
 
-The agent creates a 128-bit random pairing ID and a 128-bit random pairing secret. The manual
-representation is unpadded uppercase Base32 and therefore 26 characters; UI may group characters
-for readability but parsing removes only the documented separators. The secret exists only in agent
-memory, the locally rendered QR/manual value, and mobile memory during the attempt. It is never
-submitted to the control plane or relay and is never stored in PostgreSQL, Redis, outbox payloads,
-crash reports, or logs.
+The agent creates a 128-bit random pairing ID and a separate 256-bit random pairing secret. The
+manual representation is unpadded uppercase Base32 and therefore 52 characters; UI groups
+characters for readability but parsing removes only the documented separators. The secret exists
+only in agent memory, the locally rendered QR/manual value, and mobile memory during the attempt.
+It is never submitted to the control plane or relay and is never stored in PostgreSQL, Redis,
+outbox payloads, crash reports, or logs.
 
 The unauthenticated agent bootstrap endpoint accepts only bounded agent metadata, the pairing ID,
 the canonical agent public key/fingerprint, protocol version, and expiry. It is protected by
@@ -161,8 +161,8 @@ vectors plus a deterministic Go-to-mobile XXpsk3 transcript, including wrong-PSK
 wrong-prologue, truncation, order, replay, and oversize failures. The current Dart package candidate
 has limited adoption and does not expose an obvious XXpsk3 convenience path. The preferred
 evaluation is a mature Go Noise implementation paired with a maintained native mobile core through
-Flutter FFI, but no Noise, FFI, QR, or release-action runtime dependency is added without explicit
-approval.
+Flutter FFI. The 256-bit secret, Go Noise implementation, and mobile FFI prototype are approved for
+evaluation; QR and release-action runtime dependencies still require explicit approval.
 
 ### Two-sided confirmation and atomic registration
 
@@ -279,7 +279,10 @@ compatibility seams rather than delivered as one large file replacement.
 - [x] Define the M3 ExecPlan and create `feat/m3-agent-bootstrap-pairing` from `origin/main`.
 - [x] Implement and test the canonical X25519 fingerprint codec without adding a dependency.
 - [x] Complete the Go-to-native-core XXpsk3 interoperability spike and dependency risk report.
-- [ ] Obtain explicit approval for Noise/mobile FFI, QR, and release-attestation dependencies.
+- [x] Obtain explicit approval for the 256-bit pairing secret, Go Noise implementation, and mobile
+  FFI prototype.
+- [x] Add a reproducible Go/Rust XXpsk3 success and wrong-PSK interoperability harness.
+- [ ] Obtain explicit approval for QR and release-attestation dependencies.
 - [ ] Prove the approved native core through Flutter FFI on iOS and Android.
 - [ ] Add and regenerate the additive M3 Protobuf contracts.
 - [ ] Implement purpose-bound Ed25519 pairing ticket signing and verification.
@@ -307,15 +310,19 @@ compatibility seams rather than delivered as one large file replacement.
 - 2026-07-24: Use one canonical fingerprint:
   `x25519-sha256:` followed by lowercase hexadecimal SHA-256 of the exact 32-byte X25519 public key.
   Recompute it at every trust boundary and backfill persisted M2 rows before constraining them.
-- 2026-07-24: Use a 128-bit random opaque pairing ID and a separate 128-bit random unpadded Base32
-  secret. The secret never crosses the control-plane or relay boundary. Attempts expire in about
-  five minutes, relay tickets in at most 60 seconds, and a live route in at most 30 seconds.
+- 2026-07-24: Use a 128-bit random opaque pairing ID and a separate random pairing secret. The
+  secret never crosses the control-plane or relay boundary. Attempts expire in about five minutes,
+  relay tickets in at most 60 seconds, and a live route in at most 30 seconds.
 - 2026-07-24: Let the mobile initiate and the agent respond to
   `Noise_XXpsk3_25519_ChaChaPoly_BLAKE2s`. Bind protocol version, pairing ID, agent fingerprint, and
   roles through a CodeRoam-specific prologue and reject any recovered peer key mismatch.
 - 2026-07-24: Require an interoperability and dependency-approval gate before production Noise,
   Flutter FFI, QR, or release-action dependencies. Prefer established cryptographic implementations
   over implementing Noise primitives locally.
+- 2026-07-25: Resolve the Noise PSK-size gate by using a 256-bit random secret represented as 52
+  unpadded Base32 characters and grouped for manual entry. Approve `github.com/flynn/noise` v1.1.0
+  with current supported crypto pins for the Go side and `snow` v0.10.0 behind a narrow Flutter FFI
+  prototype. Keep production integration separate from the interoperability harness.
 - 2026-07-24: Sign exact pairing ticket claims with Ed25519 and separate pairing purpose from future
   session purpose. Keep signing material only in the control plane and verification keys in the
   relay; keep ticket/replay state short-lived and metadata-only.
