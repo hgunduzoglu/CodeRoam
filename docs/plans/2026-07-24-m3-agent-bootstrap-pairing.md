@@ -290,7 +290,7 @@ compatibility seams rather than delivered as one large file replacement.
 - [ ] Prove the approved native core through Flutter FFI on iOS and Android.
 - [x] Add and regenerate the additive M3 Protobuf contracts.
 - [x] Implement purpose-bound Ed25519 pairing ticket signing and verification.
-- [ ] Implement fail-closed agent identity creation and restoration.
+- [x] Implement fail-closed agent identity creation and restoration.
 - [ ] Implement fail-closed mobile identity creation and restoration.
 - [ ] Add session-owned pairing-attempt migration and persistence.
 - [ ] Backfill and constrain device/workspace canonical fingerprints.
@@ -342,6 +342,11 @@ compatibility seams rather than delivered as one large file replacement.
 - 2026-07-26: Bound the previous relay verification key by an explicit issuance cutoff. Tickets
   issued before cutover may drain until their ordinary expiry; the previous key cannot mint fresh
   accepted tickets after cutover.
+- 2026-07-26: Persist the agent X25519 identity behind descriptor-relative no-follow operations,
+  trusted-ancestor ownership/mode/ACL checks, canonical bounded encoding, an fsynced pending record,
+  and context-aware initialization locking. Explicit initialization recovers that pending key after
+  a crash and fails closed on ambiguity; ordinary loading never creates or replaces identity
+  material.
 - 2026-07-26: Carry endpoint role, public key, and canonical fingerprint inside authenticated Noise
   payloads and confirmations. Consumers must recompute fingerprints, compare recovered Noise keys,
   reject zero enum/version values, and enforce application-level size limits.
