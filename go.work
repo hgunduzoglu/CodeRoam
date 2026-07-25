@@ -8,6 +8,7 @@ use (
 	./packages/go/postgresx
 	./packages/go/redisx
 	./packages/go/testx
+	./protocol/compat
 	./protocol/gen/go
 	./services/agent
 	./services/control-plane

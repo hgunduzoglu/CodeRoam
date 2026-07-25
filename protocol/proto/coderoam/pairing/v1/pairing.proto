@@ -11,6 +11,7 @@ message PairingQrPayload {
   bytes pairing_secret = 4;
   uint32 protocol_version = 5;
   int64 expires_at_unix_seconds = 6;
+  string agent_display_name = 7;
 }
 
 message PairingComplete {
@@ -19,4 +20,33 @@ message PairingComplete {
   string device_key_fingerprint = 3;
   bytes agent_static_public_key = 4;
   string agent_key_fingerprint = 5;
+}
+
+enum PairingEndpointRole {
+  PAIRING_ENDPOINT_ROLE_UNSPECIFIED = 0;
+  PAIRING_ENDPOINT_ROLE_MOBILE = 1;
+  PAIRING_ENDPOINT_ROLE_AGENT = 2;
+}
+
+// PairingHandshakePayload is carried only inside the authenticated Noise
+// handshake. Consumers must recompute the fingerprint and compare the static
+// key with the key recovered from Noise before trusting either field.
+message PairingHandshakePayload {
+  uint32 protocol_version = 1;
+  string pairing_id = 2;
+  PairingEndpointRole role = 3;
+  bytes static_public_key = 4;
+  string key_fingerprint = 5;
+}
+
+// PairingConfirmation binds one endpoint's observation of the completed
+// handshake to the pairing attempt. The application layer requires a
+// 32-byte channel binding and an exact peer-key match.
+message PairingConfirmation {
+  string pairing_id = 1;
+  uint32 protocol_version = 2;
+  PairingEndpointRole role = 3;
+  bytes channel_binding = 4;
+  bytes observed_peer_static_public_key = 5;
+  string observed_peer_key_fingerprint = 6;
 }

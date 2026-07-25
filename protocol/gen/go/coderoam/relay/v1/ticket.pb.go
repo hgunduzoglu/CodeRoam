@@ -70,6 +70,55 @@ func (EndpointRole) EnumDescriptor() ([]byte, []int) {
 	return file_coderoam_relay_v1_ticket_proto_rawDescGZIP(), []int{0}
 }
 
+type TicketPurpose int32
+
+const (
+	TicketPurpose_TICKET_PURPOSE_UNSPECIFIED TicketPurpose = 0
+	TicketPurpose_TICKET_PURPOSE_PAIRING     TicketPurpose = 1
+	TicketPurpose_TICKET_PURPOSE_SESSION     TicketPurpose = 2
+)
+
+// Enum value maps for TicketPurpose.
+var (
+	TicketPurpose_name = map[int32]string{
+		0: "TICKET_PURPOSE_UNSPECIFIED",
+		1: "TICKET_PURPOSE_PAIRING",
+		2: "TICKET_PURPOSE_SESSION",
+	}
+	TicketPurpose_value = map[string]int32{
+		"TICKET_PURPOSE_UNSPECIFIED": 0,
+		"TICKET_PURPOSE_PAIRING":     1,
+		"TICKET_PURPOSE_SESSION":     2,
+	}
+)
+
+func (x TicketPurpose) Enum() *TicketPurpose {
+	p := new(TicketPurpose)
+	*p = x
+	return p
+}
+
+func (x TicketPurpose) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (TicketPurpose) Descriptor() protoreflect.EnumDescriptor {
+	return file_coderoam_relay_v1_ticket_proto_enumTypes[1].Descriptor()
+}
+
+func (TicketPurpose) Type() protoreflect.EnumType {
+	return &file_coderoam_relay_v1_ticket_proto_enumTypes[1]
+}
+
+func (x TicketPurpose) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use TicketPurpose.Descriptor instead.
+func (TicketPurpose) EnumDescriptor() ([]byte, []int) {
+	return file_coderoam_relay_v1_ticket_proto_rawDescGZIP(), []int{1}
+}
+
 type ConnectionTicketClaims struct {
 	state                protoimpl.MessageState `protogen:"open.v1"`
 	TicketId             string                 `protobuf:"bytes,1,opt,name=ticket_id,json=ticketId,proto3" json:"ticket_id,omitempty"`
@@ -80,6 +129,10 @@ type ConnectionTicketClaims struct {
 	IssuedAtUnixSeconds  int64                  `protobuf:"varint,6,opt,name=issued_at_unix_seconds,json=issuedAtUnixSeconds,proto3" json:"issued_at_unix_seconds,omitempty"`
 	ExpiresAtUnixSeconds int64                  `protobuf:"varint,7,opt,name=expires_at_unix_seconds,json=expiresAtUnixSeconds,proto3" json:"expires_at_unix_seconds,omitempty"`
 	Nonce                []byte                 `protobuf:"bytes,8,opt,name=nonce,proto3" json:"nonce,omitempty"`
+	Purpose              TicketPurpose          `protobuf:"varint,9,opt,name=purpose,proto3,enum=coderoam.relay.v1.TicketPurpose" json:"purpose,omitempty"`
+	ProtocolVersion      uint32                 `protobuf:"varint,10,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
+	NotBeforeUnixSeconds int64                  `protobuf:"varint,11,opt,name=not_before_unix_seconds,json=notBeforeUnixSeconds,proto3" json:"not_before_unix_seconds,omitempty"`
+	KeyId                string                 `protobuf:"bytes,12,opt,name=key_id,json=keyId,proto3" json:"key_id,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -170,11 +223,94 @@ func (x *ConnectionTicketClaims) GetNonce() []byte {
 	return nil
 }
 
+func (x *ConnectionTicketClaims) GetPurpose() TicketPurpose {
+	if x != nil {
+		return x.Purpose
+	}
+	return TicketPurpose_TICKET_PURPOSE_UNSPECIFIED
+}
+
+func (x *ConnectionTicketClaims) GetProtocolVersion() uint32 {
+	if x != nil {
+		return x.ProtocolVersion
+	}
+	return 0
+}
+
+func (x *ConnectionTicketClaims) GetNotBeforeUnixSeconds() int64 {
+	if x != nil {
+		return x.NotBeforeUnixSeconds
+	}
+	return 0
+}
+
+func (x *ConnectionTicketClaims) GetKeyId() string {
+	if x != nil {
+		return x.KeyId
+	}
+	return ""
+}
+
+// SignedConnectionTicket authenticates the exact deterministic serialization
+// in claims with an Ed25519 signature. Algorithm selection is deliberately not
+// represented on the wire.
+type SignedConnectionTicket struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Claims        []byte                 `protobuf:"bytes,1,opt,name=claims,proto3" json:"claims,omitempty"`
+	Signature     []byte                 `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SignedConnectionTicket) Reset() {
+	*x = SignedConnectionTicket{}
+	mi := &file_coderoam_relay_v1_ticket_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SignedConnectionTicket) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SignedConnectionTicket) ProtoMessage() {}
+
+func (x *SignedConnectionTicket) ProtoReflect() protoreflect.Message {
+	mi := &file_coderoam_relay_v1_ticket_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SignedConnectionTicket.ProtoReflect.Descriptor instead.
+func (*SignedConnectionTicket) Descriptor() ([]byte, []int) {
+	return file_coderoam_relay_v1_ticket_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *SignedConnectionTicket) GetClaims() []byte {
+	if x != nil {
+		return x.Claims
+	}
+	return nil
+}
+
+func (x *SignedConnectionTicket) GetSignature() []byte {
+	if x != nil {
+		return x.Signature
+	}
+	return nil
+}
+
 var File_coderoam_relay_v1_ticket_proto protoreflect.FileDescriptor
 
 const file_coderoam_relay_v1_ticket_proto_rawDesc = "" +
 	"\n" +
-	"\x1ecoderoam/relay/v1/ticket.proto\x12\x11coderoam.relay.v1\"\xcb\x02\n" +
+	"\x1ecoderoam/relay/v1/ticket.proto\x12\x11coderoam.relay.v1\"\x80\x04\n" +
 	"\x16ConnectionTicketClaims\x12\x1b\n" +
 	"\tticket_id\x18\x01 \x01(\tR\bticketId\x12\x19\n" +
 	"\broute_id\x18\x02 \x01(\tR\arouteId\x123\n" +
@@ -184,11 +320,23 @@ const file_coderoam_relay_v1_ticket_proto_rawDesc = "" +
 	"\frelay_region\x18\x05 \x01(\tR\vrelayRegion\x123\n" +
 	"\x16issued_at_unix_seconds\x18\x06 \x01(\x03R\x13issuedAtUnixSeconds\x125\n" +
 	"\x17expires_at_unix_seconds\x18\a \x01(\x03R\x14expiresAtUnixSeconds\x12\x14\n" +
-	"\x05nonce\x18\b \x01(\fR\x05nonce*`\n" +
+	"\x05nonce\x18\b \x01(\fR\x05nonce\x12:\n" +
+	"\apurpose\x18\t \x01(\x0e2 .coderoam.relay.v1.TicketPurposeR\apurpose\x12)\n" +
+	"\x10protocol_version\x18\n" +
+	" \x01(\rR\x0fprotocolVersion\x125\n" +
+	"\x17not_before_unix_seconds\x18\v \x01(\x03R\x14notBeforeUnixSeconds\x12\x15\n" +
+	"\x06key_id\x18\f \x01(\tR\x05keyId\"N\n" +
+	"\x16SignedConnectionTicket\x12\x16\n" +
+	"\x06claims\x18\x01 \x01(\fR\x06claims\x12\x1c\n" +
+	"\tsignature\x18\x02 \x01(\fR\tsignature*`\n" +
 	"\fEndpointRole\x12\x1d\n" +
 	"\x19ENDPOINT_ROLE_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14ENDPOINT_ROLE_CLIENT\x10\x01\x12\x17\n" +
-	"\x13ENDPOINT_ROLE_AGENT\x10\x02BKZIgithub.com/hgunduzoglu/coderoam/protocol/gen/go/coderoam/relay/v1;relayv1b\x06proto3"
+	"\x13ENDPOINT_ROLE_AGENT\x10\x02*g\n" +
+	"\rTicketPurpose\x12\x1e\n" +
+	"\x1aTICKET_PURPOSE_UNSPECIFIED\x10\x00\x12\x1a\n" +
+	"\x16TICKET_PURPOSE_PAIRING\x10\x01\x12\x1a\n" +
+	"\x16TICKET_PURPOSE_SESSION\x10\x02BKZIgithub.com/hgunduzoglu/coderoam/protocol/gen/go/coderoam/relay/v1;relayv1b\x06proto3"
 
 var (
 	file_coderoam_relay_v1_ticket_proto_rawDescOnce sync.Once
@@ -202,19 +350,22 @@ func file_coderoam_relay_v1_ticket_proto_rawDescGZIP() []byte {
 	return file_coderoam_relay_v1_ticket_proto_rawDescData
 }
 
-var file_coderoam_relay_v1_ticket_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_coderoam_relay_v1_ticket_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_coderoam_relay_v1_ticket_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_coderoam_relay_v1_ticket_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_coderoam_relay_v1_ticket_proto_goTypes = []any{
 	(EndpointRole)(0),              // 0: coderoam.relay.v1.EndpointRole
-	(*ConnectionTicketClaims)(nil), // 1: coderoam.relay.v1.ConnectionTicketClaims
+	(TicketPurpose)(0),             // 1: coderoam.relay.v1.TicketPurpose
+	(*ConnectionTicketClaims)(nil), // 2: coderoam.relay.v1.ConnectionTicketClaims
+	(*SignedConnectionTicket)(nil), // 3: coderoam.relay.v1.SignedConnectionTicket
 }
 var file_coderoam_relay_v1_ticket_proto_depIdxs = []int32{
 	0, // 0: coderoam.relay.v1.ConnectionTicketClaims.role:type_name -> coderoam.relay.v1.EndpointRole
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	1, // 1: coderoam.relay.v1.ConnectionTicketClaims.purpose:type_name -> coderoam.relay.v1.TicketPurpose
+	2, // [2:2] is the sub-list for method output_type
+	2, // [2:2] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_coderoam_relay_v1_ticket_proto_init() }
@@ -227,8 +378,8 @@ func file_coderoam_relay_v1_ticket_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coderoam_relay_v1_ticket_proto_rawDesc), len(file_coderoam_relay_v1_ticket_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   1,
+			NumEnums:      2,
+			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

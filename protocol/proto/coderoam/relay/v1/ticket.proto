@@ -10,6 +10,12 @@ enum EndpointRole {
   ENDPOINT_ROLE_AGENT = 2;
 }
 
+enum TicketPurpose {
+  TICKET_PURPOSE_UNSPECIFIED = 0;
+  TICKET_PURPOSE_PAIRING = 1;
+  TICKET_PURPOSE_SESSION = 2;
+}
+
 message ConnectionTicketClaims {
   string ticket_id = 1;
   string route_id = 2;
@@ -19,4 +25,16 @@ message ConnectionTicketClaims {
   int64 issued_at_unix_seconds = 6;
   int64 expires_at_unix_seconds = 7;
   bytes nonce = 8;
+  TicketPurpose purpose = 9;
+  uint32 protocol_version = 10;
+  int64 not_before_unix_seconds = 11;
+  string key_id = 12;
+}
+
+// SignedConnectionTicket authenticates the exact deterministic serialization
+// in claims with an Ed25519 signature. Algorithm selection is deliberately not
+// represented on the wire.
+message SignedConnectionTicket {
+  bytes claims = 1;
+  bytes signature = 2;
 }

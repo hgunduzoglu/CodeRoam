@@ -12,6 +12,7 @@ GO_MODULES := \
 	packages/go/postgresx \
 	packages/go/redisx \
 	packages/go/testx \
+	protocol/compat \
 	protocol/gen/go
 
 .PHONY: help bootstrap bootstrap-mobile proto proto-check fmt fmt-go lint lint-go test test-go \

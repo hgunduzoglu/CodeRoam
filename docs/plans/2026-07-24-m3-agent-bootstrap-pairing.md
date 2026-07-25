@@ -288,7 +288,7 @@ compatibility seams rather than delivered as one large file replacement.
   Flutter builds.
 - [x] Obtain explicit approval for QR and release-attestation dependencies.
 - [ ] Prove the approved native core through Flutter FFI on iOS and Android.
-- [ ] Add and regenerate the additive M3 Protobuf contracts.
+- [x] Add and regenerate the additive M3 Protobuf contracts.
 - [ ] Implement purpose-bound Ed25519 pairing ticket signing and verification.
 - [ ] Implement fail-closed agent identity creation and restoration.
 - [ ] Implement fail-closed mobile identity creation and restoration.
@@ -336,6 +336,12 @@ compatibility seams rather than delivered as one large file replacement.
 - 2026-07-26: Accept the user's explicit authorization to add the remaining M3 QR,
   release-attestation, and implementation dependencies without another approval pause. Still pin,
   audit, minimize, and document every selected dependency before use.
+- 2026-07-26: Keep M2 ticket fields 1-8 wire-compatible and add explicit pairing/session purpose,
+  protocol version, not-before, and signing-key ID fields. Sign exact serialized claims in an
+  algorithm-free envelope so no caller can select or downgrade the Ed25519 verifier.
+- 2026-07-26: Carry endpoint role, public key, and canonical fingerprint inside authenticated Noise
+  payloads and confirmations. Consumers must recompute fingerprints, compare recovered Noise keys,
+  reject zero enum/version values, and enforce application-level size limits.
 - 2026-07-24: Sign exact pairing ticket claims with Ed25519 and separate pairing purpose from future
   session purpose. Keep signing material only in the control plane and verification keys in the
   relay; keep ticket/replay state short-lived and metadata-only.

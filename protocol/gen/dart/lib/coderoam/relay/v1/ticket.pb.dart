@@ -31,6 +31,10 @@ class ConnectionTicketClaims extends $pb.GeneratedMessage {
     $fixnum.Int64? issuedAtUnixSeconds,
     $fixnum.Int64? expiresAtUnixSeconds,
     $core.List<$core.int>? nonce,
+    TicketPurpose? purpose,
+    $core.int? protocolVersion,
+    $fixnum.Int64? notBeforeUnixSeconds,
+    $core.String? keyId,
   }) {
     final result = create();
     if (ticketId != null) result.ticketId = ticketId;
@@ -43,6 +47,11 @@ class ConnectionTicketClaims extends $pb.GeneratedMessage {
     if (expiresAtUnixSeconds != null)
       result.expiresAtUnixSeconds = expiresAtUnixSeconds;
     if (nonce != null) result.nonce = nonce;
+    if (purpose != null) result.purpose = purpose;
+    if (protocolVersion != null) result.protocolVersion = protocolVersion;
+    if (notBeforeUnixSeconds != null)
+      result.notBeforeUnixSeconds = notBeforeUnixSeconds;
+    if (keyId != null) result.keyId = keyId;
     return result;
   }
 
@@ -70,6 +79,12 @@ class ConnectionTicketClaims extends $pb.GeneratedMessage {
     ..aInt64(7, _omitFieldNames ? '' : 'expiresAtUnixSeconds')
     ..a<$core.List<$core.int>>(
         8, _omitFieldNames ? '' : 'nonce', $pb.PbFieldType.OY)
+    ..aE<TicketPurpose>(9, _omitFieldNames ? '' : 'purpose',
+        enumValues: TicketPurpose.values)
+    ..aI(10, _omitFieldNames ? '' : 'protocolVersion',
+        fieldType: $pb.PbFieldType.OU3)
+    ..aInt64(11, _omitFieldNames ? '' : 'notBeforeUnixSeconds')
+    ..aOS(12, _omitFieldNames ? '' : 'keyId')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -163,6 +178,115 @@ class ConnectionTicketClaims extends $pb.GeneratedMessage {
   $core.bool hasNonce() => $_has(7);
   @$pb.TagNumber(8)
   void clearNonce() => $_clearField(8);
+
+  @$pb.TagNumber(9)
+  TicketPurpose get purpose => $_getN(8);
+  @$pb.TagNumber(9)
+  set purpose(TicketPurpose value) => $_setField(9, value);
+  @$pb.TagNumber(9)
+  $core.bool hasPurpose() => $_has(8);
+  @$pb.TagNumber(9)
+  void clearPurpose() => $_clearField(9);
+
+  @$pb.TagNumber(10)
+  $core.int get protocolVersion => $_getIZ(9);
+  @$pb.TagNumber(10)
+  set protocolVersion($core.int value) => $_setUnsignedInt32(9, value);
+  @$pb.TagNumber(10)
+  $core.bool hasProtocolVersion() => $_has(9);
+  @$pb.TagNumber(10)
+  void clearProtocolVersion() => $_clearField(10);
+
+  @$pb.TagNumber(11)
+  $fixnum.Int64 get notBeforeUnixSeconds => $_getI64(10);
+  @$pb.TagNumber(11)
+  set notBeforeUnixSeconds($fixnum.Int64 value) => $_setInt64(10, value);
+  @$pb.TagNumber(11)
+  $core.bool hasNotBeforeUnixSeconds() => $_has(10);
+  @$pb.TagNumber(11)
+  void clearNotBeforeUnixSeconds() => $_clearField(11);
+
+  @$pb.TagNumber(12)
+  $core.String get keyId => $_getSZ(11);
+  @$pb.TagNumber(12)
+  set keyId($core.String value) => $_setString(11, value);
+  @$pb.TagNumber(12)
+  $core.bool hasKeyId() => $_has(11);
+  @$pb.TagNumber(12)
+  void clearKeyId() => $_clearField(12);
+}
+
+/// SignedConnectionTicket authenticates the exact deterministic serialization
+/// in claims with an Ed25519 signature. Algorithm selection is deliberately not
+/// represented on the wire.
+class SignedConnectionTicket extends $pb.GeneratedMessage {
+  factory SignedConnectionTicket({
+    $core.List<$core.int>? claims,
+    $core.List<$core.int>? signature,
+  }) {
+    final result = create();
+    if (claims != null) result.claims = claims;
+    if (signature != null) result.signature = signature;
+    return result;
+  }
+
+  SignedConnectionTicket._();
+
+  factory SignedConnectionTicket.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory SignedConnectionTicket.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'SignedConnectionTicket',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'coderoam.relay.v1'),
+      createEmptyInstance: create)
+    ..a<$core.List<$core.int>>(
+        1, _omitFieldNames ? '' : 'claims', $pb.PbFieldType.OY)
+    ..a<$core.List<$core.int>>(
+        2, _omitFieldNames ? '' : 'signature', $pb.PbFieldType.OY)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SignedConnectionTicket clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SignedConnectionTicket copyWith(
+          void Function(SignedConnectionTicket) updates) =>
+      super.copyWith((message) => updates(message as SignedConnectionTicket))
+          as SignedConnectionTicket;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static SignedConnectionTicket create() => SignedConnectionTicket._();
+  @$core.override
+  SignedConnectionTicket createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static SignedConnectionTicket getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<SignedConnectionTicket>(create);
+  static SignedConnectionTicket? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.List<$core.int> get claims => $_getN(0);
+  @$pb.TagNumber(1)
+  set claims($core.List<$core.int> value) => $_setBytes(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasClaims() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearClaims() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.List<$core.int> get signature => $_getN(1);
+  @$pb.TagNumber(2)
+  set signature($core.List<$core.int> value) => $_setBytes(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasSignature() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearSignature() => $_clearField(2);
 }
 
 const $core.bool _omitFieldNames =
