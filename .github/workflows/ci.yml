@@ -46,6 +46,12 @@ jobs:
           channel: stable
           flutter-version: 3.41.5
           cache: true
+      - name: Install Rust targets for Android native assets
+        run: >-
+          rustup target add
+          aarch64-linux-android
+          armv7-linux-androideabi
+          x86_64-linux-android
       - run: make check-flutter
 
   protocol:
