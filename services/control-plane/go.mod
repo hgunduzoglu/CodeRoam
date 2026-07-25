@@ -8,7 +8,9 @@ require (
 	github.com/hgunduzoglu/coderoam/packages/go/cryptox v0.0.0
 	github.com/hgunduzoglu/coderoam/packages/go/ids v0.0.0
 	github.com/hgunduzoglu/coderoam/packages/go/postgresx v0.0.0
+	github.com/hgunduzoglu/coderoam/protocol/gen/go v0.0.0
 	github.com/jackc/pgx/v5 v5.10.0
+	google.golang.org/protobuf v1.36.11
 )
 
 require (
@@ -25,3 +27,5 @@ replace github.com/hgunduzoglu/coderoam/packages/go/cryptox => ../../packages/go
 replace github.com/hgunduzoglu/coderoam/packages/go/ids => ../../packages/go/ids
 
 replace github.com/hgunduzoglu/coderoam/packages/go/postgresx => ../../packages/go/postgresx
+
+replace github.com/hgunduzoglu/coderoam/protocol/gen/go => ../../protocol/gen/go
