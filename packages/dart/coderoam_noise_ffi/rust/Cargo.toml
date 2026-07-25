@@ -1,0 +1,16 @@
+[package]
+name = "coderoam-noise-ffi"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+snow = { version = "0.10.0", default-features = false, features = [
+  "use-blake2",
+  "use-chacha20poly1305",
+  "use-curve25519",
+  "use-getrandom",
+] }

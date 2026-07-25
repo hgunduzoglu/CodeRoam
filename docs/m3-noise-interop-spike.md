@@ -177,3 +177,17 @@ This slice adds the reproducible cross-language handshake harness at `tests/nois
 through `make test-noise-interop`, with success and wrong-PSK coverage. The dependency remains
 isolated to the test module: production pairing, Flutter FFI, relay, persistence, and UI wiring
 remain separate later slices.
+
+## Host FFI probe
+
+The next bounded slice adds `packages/dart/coderoam_noise_ffi`, a Dart code-assets package whose
+build hook compiles the same minimal `snow` feature set into a Rust `cdylib`. A non-secret-bearing
+ABI probe constructs the approved XXpsk3 initiator and writes its first bounded handshake message;
+Dart resolves that symbol through `@Native` and verifies ABI version 1. Cargo runs in an isolated
+POSIX process group, and a timeout regression verifies that both a fake Cargo process and its
+persistent child are terminated before the hook reports failure.
+
+`make check-noise-ffi` passes on the macOS arm64 host. The package is not yet a dependency of the
+mobile app, and the hook intentionally rejects iOS, Android, and other unsupported targets.
+Cross-target builds, opaque state handles, secret/key buffer ownership, zeroization, and mobile
+integration remain later slices.

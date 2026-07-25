@@ -15,7 +15,7 @@ GO_MODULES := \
 	protocol/gen/go
 
 .PHONY: help bootstrap bootstrap-mobile proto proto-check fmt fmt-go lint lint-go test test-go \
-	test-noise-interop \
+	test-noise-interop check-noise-ffi \
 	test-flutter test-web test-protocol test-infrastructure check-flutter check-web build build-go \
 	build-flutter build-web up down migrate agent-skills-check
 
@@ -29,6 +29,7 @@ help:
 	@echo "test               Run all configured test suites"
 	@echo "test-go            Run every Go module test suite"
 	@echo "test-noise-interop Run the Go/Rust Noise XXpsk3 interoperability test"
+	@echo "check-noise-ffi    Validate the host Dart/Rust Noise FFI probe"
 	@echo "test-infrastructure Smoke-test Compose readiness and migrations"
 	@echo "check-flutter       Check, test, and build the Flutter app"
 	@echo "check-web           Check, test, and build both WebViews"
@@ -91,6 +92,14 @@ test-go:
 
 test-noise-interop:
 	./scripts/test-noise-interop.sh
+
+check-noise-ffi:
+	cd packages/dart/coderoam_noise_ffi && dart pub get --enforce-lockfile
+	cd packages/dart/coderoam_noise_ffi && dart format --output=none --set-exit-if-changed lib test hook
+	cd packages/dart/coderoam_noise_ffi && dart analyze
+	cargo fmt --check --manifest-path packages/dart/coderoam_noise_ffi/rust/Cargo.toml
+	cargo clippy --locked --manifest-path packages/dart/coderoam_noise_ffi/rust/Cargo.toml -- -D warnings
+	cd packages/dart/coderoam_noise_ffi && dart test
 
 test-flutter:
 	@if command -v flutter >/dev/null && [ -d apps/mobile/android ]; then cd apps/mobile && flutter test; else echo "skip flutter tests: run make bootstrap-mobile"; fi

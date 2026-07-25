@@ -282,6 +282,8 @@ compatibility seams rather than delivered as one large file replacement.
 - [x] Obtain explicit approval for the 256-bit pairing secret, Go Noise implementation, and mobile
   FFI prototype.
 - [x] Add a reproducible Go/Rust XXpsk3 success and wrong-PSK interoperability harness.
+- [x] Bundle the approved `snow` core through a host `package_ffi` build hook and invoke a
+  non-secret-bearing Dart ABI probe.
 - [ ] Obtain explicit approval for QR and release-attestation dependencies.
 - [ ] Prove the approved native core through Flutter FFI on iOS and Android.
 - [ ] Add and regenerate the additive M3 Protobuf contracts.
@@ -323,6 +325,9 @@ compatibility seams rather than delivered as one large file replacement.
   unpadded Base32 characters and grouped for manual entry. Approve `github.com/flynn/noise` v1.1.0
   with current supported crypto pins for the Go side and `snow` v0.10.0 behind a narrow Flutter FFI
   prototype. Keep production integration separate from the interoperability harness.
+- 2026-07-25: Introduce the FFI boundary with a non-secret-bearing ABI probe before adding opaque
+  handshake handles. Use Dart code-assets build hooks, fail closed on unsupported targets or Cargo
+  failures, and keep the package disconnected from the mobile app until iOS/Android builds pass.
 - 2026-07-24: Sign exact pairing ticket claims with Ed25519 and separate pairing purpose from future
   session purpose. Keep signing material only in the control plane and verification keys in the
   relay; keep ticket/replay state short-lived and metadata-only.
