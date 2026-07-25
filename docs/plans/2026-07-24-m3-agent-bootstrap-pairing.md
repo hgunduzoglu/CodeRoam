@@ -278,8 +278,9 @@ compatibility seams rather than delivered as one large file replacement.
   boundaries.
 - [x] Define the M3 ExecPlan and create `feat/m3-agent-bootstrap-pairing` from `origin/main`.
 - [x] Implement and test the canonical X25519 fingerprint codec without adding a dependency.
-- [ ] Complete the XXpsk3 Go/mobile interoperability spike and dependency risk report.
+- [x] Complete the Go-to-native-core XXpsk3 interoperability spike and dependency risk report.
 - [ ] Obtain explicit approval for Noise/mobile FFI, QR, and release-attestation dependencies.
+- [ ] Prove the approved native core through Flutter FFI on iOS and Android.
 - [ ] Add and regenerate the additive M3 Protobuf contracts.
 - [ ] Implement purpose-bound Ed25519 pairing ticket signing and verification.
 - [ ] Implement fail-closed agent identity creation and restoration.
