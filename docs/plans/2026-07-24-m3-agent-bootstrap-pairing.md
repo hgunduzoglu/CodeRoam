@@ -294,7 +294,9 @@ compatibility seams rather than delivered as one large file replacement.
 - [x] Implement fail-closed mobile identity creation and restoration.
 - [x] Replace the starter pairing-attempt table with the bounded M3 state schema and transactional
   migration coverage.
-- [ ] Implement pairing-attempt domain validation and lock-based repository persistence.
+- [x] Implement open pairing-attempt domain validation and lock-based repository create/load
+  persistence.
+- [ ] Implement bootstrap-credential authentication and claim/confirmation state transitions.
 - [ ] Backfill and constrain device/workspace canonical fingerprints.
 - [ ] Implement device-owned and workspace-owned registration/listing boundaries.
 - [ ] Implement signed agent artifact generation and verification documentation.
@@ -363,6 +365,12 @@ compatibility seams rather than delivered as one large file replacement.
   candidates, a hash-only bootstrap credential, explicit claim/confirmation state, matching
   32-byte channel bindings, lifecycle timestamps, and expiry cleanup indexing. It stores no pairing
   secret or raw bootstrap credential.
+- 2026-07-31: Construct only normalized open attempts, derive the persisted fingerprint from the
+  agent public key, and reject zero/unbounded candidate data before SQL. Let the session repository
+  own the expiry clock, recheck it after acquiring `FOR UPDATE`, and lock a usable open attempt
+  inside the caller-owned transaction; missing, future, expired, exhausted, non-open,
+  noncanonical, and partial rows share one unavailable result. Credential verification and state
+  mutation remain separate reviewed slices.
 - 2026-07-24: Sign exact pairing ticket claims with Ed25519 and separate pairing purpose from future
   session purpose. Keep signing material only in the control plane and verification keys in the
   relay; keep ticket/replay state short-lived and metadata-only.

@@ -125,6 +125,9 @@ func validRelayRegion(value string) bool {
 		if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '-' {
 			return false
 		}
+		if character == '-' && index > 0 && value[index-1] == '-' {
+			return false
+		}
 	}
 	return true
 }

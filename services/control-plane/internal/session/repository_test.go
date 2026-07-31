@@ -99,3 +99,72 @@ func TestRepositoryCreateOrGetRejectsInvalidBoundaries(t *testing.T) {
 		t.Fatalf("CreateOrGet(invalid operation maximum) error = %v, want persistence unavailable", err)
 	}
 }
+
+func TestPairingAttemptRepositoryRejectsInvalidBoundaries(t *testing.T) {
+	repository := NewRepository()
+	attempt, err := NewPairingAttempt(validPairingAttemptSpec(t))
+	if err != nil {
+		t.Fatalf("NewPairingAttempt() error = %v", err)
+	}
+	checkedAt := attempt.createdAt.Add(time.Minute)
+
+	var nilRepository *Repository
+	if err := nilRepository.CreatePairingAttempt(context.Background(), nil, attempt); !errors.Is(
+		err, ErrPairingAttemptPersistenceUnavailable,
+	) {
+		t.Fatalf("nil Repository CreatePairingAttempt() error = %v", err)
+	}
+	if err := repository.CreatePairingAttempt(nil, nil, attempt); !errors.Is(
+		err, ErrPairingAttemptPersistenceUnavailable,
+	) {
+		t.Fatalf("CreatePairingAttempt(nil context) error = %v", err)
+	}
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := repository.CreatePairingAttempt(canceledCtx, nil, attempt); !errors.Is(err, context.Canceled) {
+		t.Fatalf("CreatePairingAttempt(canceled context) error = %v", err)
+	}
+	if err := repository.CreatePairingAttempt(context.Background(), nil, attempt); !errors.Is(
+		err, ErrPairingAttemptPersistenceUnavailable,
+	) {
+		t.Fatalf("CreatePairingAttempt(nil transaction) error = %v", err)
+	}
+	if _, err := nilRepository.LockOpenPairingAttempt(
+		context.Background(), nil, attempt.id.String(),
+	); !errors.Is(err, ErrPairingAttemptPersistenceUnavailable) {
+		t.Fatalf("nil Repository LockOpenPairingAttempt() error = %v", err)
+	}
+	if _, err := repository.LockOpenPairingAttempt(nil, nil, attempt.id.String()); !errors.Is(
+		err, ErrPairingAttemptPersistenceUnavailable,
+	) {
+		t.Fatalf("LockOpenPairingAttempt(nil context) error = %v", err)
+	}
+	if _, err := repository.LockOpenPairingAttempt(
+		canceledCtx, nil, attempt.id.String(),
+	); !errors.Is(err, context.Canceled) {
+		t.Fatalf("LockOpenPairingAttempt(canceled context) error = %v", err)
+	}
+	if _, err := repository.LockOpenPairingAttempt(
+		context.Background(), nil, "invalid",
+	); !errors.Is(err, ErrInvalidPairingAttempt) {
+		t.Fatalf("LockOpenPairingAttempt(invalid id) error = %v", err)
+	}
+	repository.now = func() time.Time { return time.Time{} }
+	if _, err := repository.LockOpenPairingAttempt(
+		context.Background(), nil, attempt.id.String(),
+	); !errors.Is(err, ErrPairingAttemptPersistenceUnavailable) {
+		t.Fatalf("LockOpenPairingAttempt(zero clock) error = %v", err)
+	}
+	repository.now = func() time.Time { return checkedAt }
+	if _, err := repository.LockOpenPairingAttempt(
+		context.Background(), nil, attempt.id.String(),
+	); !errors.Is(err, ErrPairingAttemptPersistenceUnavailable) {
+		t.Fatalf("LockOpenPairingAttempt(nil transaction) error = %v", err)
+	}
+	repository.operationMax = 0
+	if err := repository.CreatePairingAttempt(context.Background(), nil, attempt); !errors.Is(
+		err, ErrPairingAttemptPersistenceUnavailable,
+	) {
+		t.Fatalf("CreatePairingAttempt(invalid operation maximum) error = %v", err)
+	}
+}

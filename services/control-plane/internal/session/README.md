@@ -42,3 +42,15 @@ claim groups, matching endpoint bindings, and explicit `open`/`claimed`/`confirm
 state shapes. Application services remain responsible for recomputing fingerprints, authenticating
 the bootstrap credential, enforcing expiry on every access, and performing state transitions under
 a row lock; those rules must not be inferred from cross-schema SQL.
+
+The open-attempt domain constructor rejects noncanonical identifiers, zero or malformed public
+keys, unbounded/control/bidirectional/format-separator metadata, unsupported protocol versions,
+invalid relay regions, zero or wrong-sized credential hashes, and PostgreSQL-canonical lifetimes
+outside `(0, 5 minutes]`. It computes the canonical agent fingerprint from the copied public key
+instead of accepting fingerprint text.
+
+`CreatePairingAttempt` persists only validated constructor output in a caller-owned transaction.
+`LockOpenPairingAttempt` samples the repository clock before and after `FOR UPDATE`, and returns the
+same generic unavailable result for missing, future, expired, exhausted, non-open, noncanonical, or
+partially populated rows. The caller retains the row lock until its transaction commits or rolls
+back. Credential authentication and claim/confirmation mutations remain later state-machine slices.
