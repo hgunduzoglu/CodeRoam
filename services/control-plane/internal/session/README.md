@@ -28,3 +28,17 @@ and server-selected region exactly match; foreign or mismatched reuse fails clos
 returns `ErrSessionCommitOutcomeUnknown`, so callers must retry the same ID and inputs instead of
 creating a second session. Session insertion emits no outbox event because M2 creates no relay
 credential or other external side effect.
+
+M3 migration version 2 replaces the unused pairing-attempt starter shape with session-owned,
+bounded bootstrap, candidate, claim, confirmation, and consumption metadata. Pre-M3 rows cannot be
+authenticated because they contain no bootstrap-credential hash, so the forward migration deletes
+them transactionally instead of upgrading them into trusted attempts. The schema stores only a
+domain-separated 32-byte bootstrap-credential hash; the raw credential, pairing secret, Noise
+plaintext, private keys, and engineering payloads never enter PostgreSQL.
+
+Database constraints provide defense in depth for canonical IDs/fingerprints, 32-byte public keys
+and channel bindings, the five-minute maximum lifetime, bounded failure count, complete optional
+claim groups, matching endpoint bindings, and explicit `open`/`claimed`/`confirming`/`consumed`
+state shapes. Application services remain responsible for recomputing fingerprints, authenticating
+the bootstrap credential, enforcing expiry on every access, and performing state transitions under
+a row lock; those rules must not be inferred from cross-schema SQL.

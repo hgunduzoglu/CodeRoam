@@ -292,7 +292,9 @@ compatibility seams rather than delivered as one large file replacement.
 - [x] Implement purpose-bound Ed25519 pairing ticket signing and verification.
 - [x] Implement fail-closed agent identity creation and restoration.
 - [x] Implement fail-closed mobile identity creation and restoration.
-- [ ] Add session-owned pairing-attempt migration and persistence.
+- [x] Replace the starter pairing-attempt table with the bounded M3 state schema and transactional
+  migration coverage.
+- [ ] Implement pairing-attempt domain validation and lock-based repository persistence.
 - [ ] Backfill and constrain device/workspace canonical fingerprints.
 - [ ] Implement device-owned and workspace-owned registration/listing boundaries.
 - [ ] Implement signed agent artifact generation and verification documentation.
@@ -355,6 +357,12 @@ compatibility seams rather than delivered as one large file replacement.
   Android app encrypts the bounded record with an Android Keystore AES-GCM key and requires a
   synchronous SharedPreferences commit. Restoration never creates, deletes, repairs, or replaces
   persisted material, and Dart retains only the derived public identity after each operation.
+- 2026-07-31: Treat every pre-M3 `session.pairing_attempts` row as an unauthenticated starter
+  artifact because it has no bootstrap-credential hash or endpoint state. Migration version 2
+  deletes those short-lived unusable rows transactionally, then adds bounded agent/device
+  candidates, a hash-only bootstrap credential, explicit claim/confirmation state, matching
+  32-byte channel bindings, lifecycle timestamps, and expiry cleanup indexing. It stores no pairing
+  secret or raw bootstrap credential.
 - 2026-07-24: Sign exact pairing ticket claims with Ed25519 and separate pairing purpose from future
   session purpose. Keep signing material only in the control plane and verification keys in the
   relay; keep ticket/replay state short-lived and metadata-only.

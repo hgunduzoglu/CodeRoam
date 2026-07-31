@@ -166,15 +166,33 @@ func applySessionIntegrationMigration(
 	database postgresx.TransactionStarter,
 ) {
 	t.Helper()
-	sql, err := os.ReadFile("migrations/000001_init.sql")
-	if err != nil {
-		t.Fatalf("read session migration: %v", err)
-	}
-	if err := postgresx.ApplyMigrations(ctx, database, []postgresx.Migration{{
-		Scope: "session", Version: 1, Name: "init", SQL: string(sql),
-	}}); err != nil {
+	migrations := readSessionIntegrationMigrations(t)
+	if err := postgresx.ApplyMigrations(ctx, database, migrations); err != nil {
 		t.Fatalf("apply session migration: %v", err)
 	}
+}
+
+func readSessionIntegrationMigrations(t *testing.T) []postgresx.Migration {
+	t.Helper()
+	files := []struct {
+		version uint64
+		name    string
+		path    string
+	}{
+		{version: 1, name: "init", path: "migrations/000001_init.sql"},
+		{version: 2, name: "pairing_attempt_state", path: "migrations/000002_pairing_attempt_state.sql"},
+	}
+	migrations := make([]postgresx.Migration, 0, len(files))
+	for _, file := range files {
+		sql, err := os.ReadFile(file.path)
+		if err != nil {
+			t.Fatalf("read session migration %d: %v", file.version, err)
+		}
+		migrations = append(migrations, postgresx.Migration{
+			Scope: "session", Version: file.version, Name: file.name, SQL: string(sql),
+		})
+	}
+	return migrations
 }
 
 func newSessionIntegrationMetadata(t *testing.T, owner auth.Actor, startedAt time.Time) Session {

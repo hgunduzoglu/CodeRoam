@@ -291,13 +291,19 @@ func applySessionServiceIntegrationMigrations(
 ) {
 	t.Helper()
 	files := []struct {
-		scope string
-		path  string
+		scope   string
+		version uint64
+		name    string
+		path    string
 	}{
-		{scope: "outbox", path: "../outbox/migrations/000001_init.sql"},
-		{scope: "device", path: "../device/migrations/000001_init.sql"},
-		{scope: "workspace", path: "../workspace/migrations/000001_init.sql"},
-		{scope: "session", path: "migrations/000001_init.sql"},
+		{scope: "outbox", version: 1, name: "init", path: "../outbox/migrations/000001_init.sql"},
+		{scope: "device", version: 1, name: "init", path: "../device/migrations/000001_init.sql"},
+		{scope: "workspace", version: 1, name: "init", path: "../workspace/migrations/000001_init.sql"},
+		{scope: "session", version: 1, name: "init", path: "migrations/000001_init.sql"},
+		{
+			scope: "session", version: 2, name: "pairing_attempt_state",
+			path: "migrations/000002_pairing_attempt_state.sql",
+		},
 	}
 	for _, file := range files {
 		sql, err := os.ReadFile(file.path)
@@ -305,7 +311,7 @@ func applySessionServiceIntegrationMigrations(
 			t.Fatalf("read %s migration: %v", file.scope, err)
 		}
 		if err := postgresx.ApplyMigrations(ctx, database, []postgresx.Migration{{
-			Scope: file.scope, Version: 1, Name: "init", SQL: string(sql),
+			Scope: file.scope, Version: file.version, Name: file.name, SQL: string(sql),
 		}}); err != nil {
 			t.Fatalf("apply %s migration: %v", file.scope, err)
 		}
