@@ -291,7 +291,7 @@ compatibility seams rather than delivered as one large file replacement.
 - [x] Add and regenerate the additive M3 Protobuf contracts.
 - [x] Implement purpose-bound Ed25519 pairing ticket signing and verification.
 - [x] Implement fail-closed agent identity creation and restoration.
-- [ ] Implement fail-closed mobile identity creation and restoration.
+- [x] Implement fail-closed mobile identity creation and restoration.
 - [ ] Add session-owned pairing-attempt migration and persistence.
 - [ ] Backfill and constrain device/workspace canonical fingerprints.
 - [ ] Implement device-owned and workspace-owned registration/listing boundaries.
@@ -350,6 +350,11 @@ compatibility seams rather than delivered as one large file replacement.
 - 2026-07-26: Carry endpoint role, public key, and canonical fingerprint inside authenticated Noise
   payloads and confirmations. Consumers must recompute fingerprints, compare recovered Noise keys,
   reject zero enum/version values, and enforce application-level size limits.
+- 2026-07-31: Publish the mobile X25519 identity through one native atomic create-if-absent
+  operation. iOS uses non-synchronizing, this-device-only Keychain insertion; the single-process
+  Android app encrypts the bounded record with an Android Keystore AES-GCM key and requires a
+  synchronous SharedPreferences commit. Restoration never creates, deletes, repairs, or replaces
+  persisted material, and Dart retains only the derived public identity after each operation.
 - 2026-07-24: Sign exact pairing ticket claims with Ed25519 and separate pairing purpose from future
   session purpose. Keep signing material only in the control plane and verification keys in the
   relay; keep ticket/replay state short-lived and metadata-only.
@@ -449,8 +454,10 @@ an iPhone-only run.
   before implementation.
 - An unauthenticated bootstrap endpoint and pairing relay route create denial-of-service pressure.
   Rate limits, admission bounds, timeouts, queue caps, and metrics need failure-injection evidence.
-- Keychain/Keystore accessibility, backup/restore, uninstall/reinstall, and device-lock behavior
-  differ by platform and require physical-device validation.
+- Keychain/Keystore creation and restoration compile on iOS and Android, but process termination,
+  accessibility, backup/restore, uninstall/reinstall, and device-lock behavior still require
+  physical-device validation. Dart cryptography and platform-channel strings also cannot provide
+  provable private-byte zeroization; the later secret-bearing native handle must close that gap.
 - A newly paired agent is owner-registered but not automatically attached to the existing M2
   environment/project. The product must keep this state understandable until an explicit attachment
   flow is approved.
