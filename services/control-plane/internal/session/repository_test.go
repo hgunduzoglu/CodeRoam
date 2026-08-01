@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/hgunduzoglu/coderoam/packages/go/cryptox"
 )
 
 func TestRepositoryCreateRejectsInvalidBoundaries(t *testing.T) {
@@ -186,6 +188,37 @@ func TestPairingAttemptRepositoryRejectsInvalidBoundaries(t *testing.T) {
 	); !errors.Is(err, ErrPairingAttemptPersistenceUnavailable) {
 		t.Fatalf("AuthenticateOpenPairingAttempt(nil transaction) error = %v", err)
 	}
+	claim, err := NewPairingAttemptClaim(validPairingAttemptClaimSpec(t))
+	if err != nil {
+		t.Fatalf("NewPairingAttemptClaim() error = %v", err)
+	}
+	if err := nilRepository.claimOpenPairingAttempt(
+		context.Background(), nil, attempt.id.String(), claim,
+	); !errors.Is(err, ErrPairingAttemptPersistenceUnavailable) {
+		t.Fatalf("nil Repository claimOpenPairingAttempt() error = %v", err)
+	}
+	if err := repository.claimOpenPairingAttempt(
+		nil, nil, attempt.id.String(), claim,
+	); !errors.Is(err, ErrPairingAttemptPersistenceUnavailable) {
+		t.Fatalf("claimOpenPairingAttempt(nil context) error = %v", err)
+	}
+	if err := repository.claimOpenPairingAttempt(
+		canceledCtx, nil, attempt.id.String(), claim,
+	); !errors.Is(err, context.Canceled) {
+		t.Fatalf("claimOpenPairingAttempt(canceled context) error = %v", err)
+	}
+	if err := repository.claimOpenPairingAttempt(
+		context.Background(), nil, attempt.id.String(), claim,
+	); !errors.Is(err, ErrPairingAttemptPersistenceUnavailable) {
+		t.Fatalf("claimOpenPairingAttempt(nil transaction) error = %v", err)
+	}
+	invalidClaim := claim
+	invalidClaim.deviceFingerprint = cryptox.X25519Fingerprint{}
+	if err := repository.claimOpenPairingAttempt(
+		context.Background(), &sessionServiceTxStub{}, attempt.id.String(), invalidClaim,
+	); !errors.Is(err, ErrInvalidPairingAttemptClaim) {
+		t.Fatalf("claimOpenPairingAttempt(invalid claim) error = %v", err)
+	}
 	repository.operationMax = 0
 	if err := repository.CreatePairingAttempt(context.Background(), nil, attempt); !errors.Is(
 		err, ErrPairingAttemptPersistenceUnavailable,
@@ -196,5 +229,10 @@ func TestPairingAttemptRepositoryRejectsInvalidBoundaries(t *testing.T) {
 		context.Background(), nil, attempt.id.String(), validPairingBootstrapCredential(),
 	); !errors.Is(err, ErrPairingAttemptPersistenceUnavailable) {
 		t.Fatalf("AuthenticateOpenPairingAttempt(invalid operation maximum) error = %v", err)
+	}
+	if err := repository.claimOpenPairingAttempt(
+		context.Background(), nil, attempt.id.String(), claim,
+	); !errors.Is(err, ErrPairingAttemptPersistenceUnavailable) {
+		t.Fatalf("claimOpenPairingAttempt(invalid operation maximum) error = %v", err)
 	}
 }

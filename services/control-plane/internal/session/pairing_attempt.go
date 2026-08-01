@@ -36,7 +36,10 @@ var (
 
 type pairingAttemptState string
 
-const pairingAttemptStateOpen pairingAttemptState = "open"
+const (
+	pairingAttemptStateOpen    pairingAttemptState = "open"
+	pairingAttemptStateClaimed pairingAttemptState = "claimed"
+)
 
 // PairingAttemptSpec contains public candidate metadata and an already domain-separated
 // bootstrap-credential hash. It must never contain the raw bootstrap credential or pairing secret.

@@ -9,8 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hgunduzoglu/coderoam/packages/go/cryptox"
 	"github.com/hgunduzoglu/coderoam/packages/go/ids"
 	"github.com/hgunduzoglu/coderoam/packages/go/postgresx"
+	"github.com/hgunduzoglu/coderoam/services/control-plane/internal/device"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -56,6 +58,9 @@ func TestPairingAttemptRepositoryIntegration(t *testing.T) {
 	}
 	assertStoredPairingAttempt(t, ctx, pool, committed)
 	assertPairingBootstrapCredentialAuthentication(t, ctx, pool, repository, createdAt.Add(2*time.Minute))
+	assertPairingAttemptClaimTransition(t, ctx, pool, repository, createdAt.Add(3*time.Minute))
+	assertConcurrentPairingAttemptClaims(t, ctx, pool, repository, createdAt.Add(4*time.Minute))
+	assertPairingAttemptClaimCommitReconciliation(t, ctx, pool, repository, createdAt.Add(5*time.Minute))
 
 	duplicateTx := beginSessionIntegrationTx(t, ctx, pool, "pairing attempt duplicate")
 	if err := repository.CreatePairingAttempt(
@@ -296,6 +301,259 @@ func assertPairingBootstrapCredentialTimeBoundary(
 	rollbackSessionIntegrationTx(t, backwardTx, "pairing credential backward clock")
 }
 
+func assertPairingAttemptClaimTransition(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	repository *Repository,
+	createdAt time.Time,
+) {
+	t.Helper()
+	attempt := newPairingAttemptRepositoryFixture(t, createdAt)
+	deletePairingAttemptFixture(t, pool, attempt.id.String())
+	t.Cleanup(func() { deletePairingAttemptFixture(t, pool, attempt.id.String()) })
+	createTx := beginSessionIntegrationTx(t, ctx, pool, "pairing claim create")
+	if err := repository.CreatePairingAttempt(ctx, createTx, attempt); err != nil {
+		t.Fatalf("CreatePairingAttempt(claim fixture) error = %v", err)
+	}
+	if err := createTx.Commit(ctx); err != nil {
+		t.Fatalf("commit pairing claim fixture: %v", err)
+	}
+	claim, err := NewPairingAttemptClaim(validPairingAttemptClaimSpec(t))
+	if err != nil {
+		t.Fatalf("NewPairingAttemptClaim() error = %v", err)
+	}
+	service, err := newPairingAttemptService(pool, repository)
+	if err != nil {
+		t.Fatalf("newPairingAttemptService() error = %v", err)
+	}
+	claimedAt := createdAt.Add(time.Minute)
+	repository.now = func() time.Time { return claimedAt }
+
+	rollbackTx := beginSessionIntegrationTx(t, ctx, pool, "pairing claim rollback")
+	if err := repository.claimOpenPairingAttempt(
+		ctx, rollbackTx, attempt.id.String(), claim,
+	); err != nil {
+		t.Fatalf("claimOpenPairingAttempt(rollback) error = %v", err)
+	}
+	assertPairingAttemptClaimed(t, ctx, rollbackTx, attempt.id.String(), claim, claimedAt)
+	assertStoredPairingAttempt(t, ctx, pool, attempt)
+	rollbackSessionIntegrationTx(t, rollbackTx, "pairing claim rollback")
+	assertStoredPairingAttempt(t, ctx, pool, attempt)
+
+	if err := service.claim(ctx, attempt.id.String(), claim); err != nil {
+		t.Fatalf("claim() error = %v", err)
+	}
+	assertPairingAttemptClaimed(t, ctx, pool, attempt.id.String(), claim, claimedAt)
+
+	repository.now = func() time.Time { return claimedAt.Add(time.Second) }
+	if err := service.claim(ctx, attempt.id.String(), claim); err != nil {
+		t.Fatalf("claim(idempotent retry) error = %v", err)
+	}
+	assertPairingAttemptClaimed(t, ctx, pool, attempt.id.String(), claim, claimedAt)
+
+	conflicts := map[string]func(*PairingAttemptClaimSpec){
+		"foreign owner": func(spec *PairingAttemptClaimSpec) {
+			spec.Actor = newSessionTestActor(t, "2123456789abcdef0123456789abcdef")
+		},
+		"different expected agent key": func(spec *PairingAttemptClaimSpec) {
+			key, parseErr := cryptox.ParseX25519PublicKey(bytes.Repeat([]byte{0x72}, 32))
+			if parseErr != nil {
+				t.Fatalf("ParseX25519PublicKey(agent conflict) error = %v", parseErr)
+			}
+			spec.ExpectedAgentPublicKey = key
+		},
+		"different device id": func(spec *PairingAttemptClaimSpec) {
+			spec.DeviceID = "3123456789abcdef0123456789abcdef"
+		},
+		"different display name": func(spec *PairingAttemptClaimSpec) {
+			spec.DeviceDisplayName = "Other phone"
+		},
+		"different platform": func(spec *PairingAttemptClaimSpec) {
+			spec.DevicePlatform = device.PlatformAndroid
+		},
+		"different public key": func(spec *PairingAttemptClaimSpec) {
+			key, parseErr := cryptox.ParseX25519PublicKey(bytes.Repeat([]byte{0x71}, 32))
+			if parseErr != nil {
+				t.Fatalf("ParseX25519PublicKey(conflict) error = %v", parseErr)
+			}
+			spec.DevicePublicKey = key
+		},
+	}
+	for name, mutate := range conflicts {
+		t.Run(name, func(t *testing.T) {
+			spec := validPairingAttemptClaimSpec(t)
+			mutate(&spec)
+			conflict, claimErr := NewPairingAttemptClaim(spec)
+			if claimErr != nil {
+				t.Fatalf("NewPairingAttemptClaim(conflict) error = %v", claimErr)
+			}
+			if claimErr := service.claim(
+				ctx, attempt.id.String(), conflict,
+			); !errors.Is(claimErr, ErrPairingAttemptUnavailable) {
+				t.Fatalf("claim(%s) error = %v", name, claimErr)
+			}
+		})
+	}
+	corruptTx := beginSessionIntegrationTx(t, ctx, pool, "pairing claim corrupt nullable metadata")
+	if _, err := corruptTx.Exec(ctx, `
+		ALTER TABLE session.pairing_attempts
+		  DROP CONSTRAINT pairing_attempts_claim_shape,
+		  DROP CONSTRAINT pairing_attempts_state_shape`,
+	); err != nil {
+		t.Fatalf("drop pairing claim constraints: %v", err)
+	}
+	if _, err := corruptTx.Exec(ctx, `
+		UPDATE session.pairing_attempts SET claimed_user_id = NULL WHERE id = $1`,
+		attempt.id.String(),
+	); err != nil {
+		t.Fatalf("corrupt claimed pairing-attempt metadata: %v", err)
+	}
+	if claimErr := repository.claimOpenPairingAttempt(
+		ctx, corruptTx, attempt.id.String(), claim,
+	); !errors.Is(claimErr, ErrPairingAttemptUnavailable) {
+		t.Fatalf("claim(corrupt nullable metadata) error = %v", claimErr)
+	}
+	rollbackSessionIntegrationTx(t, corruptTx, "pairing claim corrupt nullable metadata")
+	if claimErr := service.claim(ctx, "invalid", claim); !errors.Is(
+		claimErr, ErrPairingAttemptUnavailable,
+	) {
+		t.Fatalf("claim(invalid id) error = %v", claimErr)
+	}
+	repository.now = func() time.Time { return attempt.expiresAt }
+	if claimErr := service.claim(ctx, attempt.id.String(), claim); !errors.Is(
+		claimErr, ErrPairingAttemptUnavailable,
+	) {
+		t.Fatalf("claim(expired idempotent retry) error = %v", claimErr)
+	}
+	assertPairingAttemptClaimed(t, ctx, pool, attempt.id.String(), claim, claimedAt)
+}
+
+func assertConcurrentPairingAttemptClaims(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	repository *Repository,
+	createdAt time.Time,
+) {
+	t.Helper()
+	attempt := newPairingAttemptRepositoryFixture(t, createdAt)
+	deletePairingAttemptFixture(t, pool, attempt.id.String())
+	t.Cleanup(func() { deletePairingAttemptFixture(t, pool, attempt.id.String()) })
+	createTx := beginSessionIntegrationTx(t, ctx, pool, "concurrent pairing claim create")
+	if err := repository.CreatePairingAttempt(ctx, createTx, attempt); err != nil {
+		t.Fatalf("CreatePairingAttempt(concurrent claim fixture) error = %v", err)
+	}
+	if err := createTx.Commit(ctx); err != nil {
+		t.Fatalf("commit concurrent pairing claim fixture: %v", err)
+	}
+	winner, err := NewPairingAttemptClaim(validPairingAttemptClaimSpec(t))
+	if err != nil {
+		t.Fatalf("NewPairingAttemptClaim(winner) error = %v", err)
+	}
+	foreignSpec := validPairingAttemptClaimSpec(t)
+	foreignSpec.Actor = newSessionTestActor(t, "2123456789abcdef0123456789abcdef")
+	foreign, err := NewPairingAttemptClaim(foreignSpec)
+	if err != nil {
+		t.Fatalf("NewPairingAttemptClaim(foreign) error = %v", err)
+	}
+	claimedAt := createdAt.Add(time.Minute)
+	repository.now = func() time.Time { return claimedAt }
+
+	winnerTx := beginSessionIntegrationTx(t, ctx, pool, "concurrent pairing claim winner")
+	if err := repository.claimOpenPairingAttempt(
+		ctx, winnerTx, attempt.id.String(), winner,
+	); err != nil {
+		t.Fatalf("claimOpenPairingAttempt(winner) error = %v", err)
+	}
+	exactTx := beginSessionIntegrationTx(t, ctx, pool, "concurrent pairing claim exact retry")
+	exactResult := make(chan error, 1)
+	go func() {
+		exactResult <- repository.claimOpenPairingAttempt(ctx, exactTx, attempt.id.String(), winner)
+	}()
+	waitForPairingAttemptRowLock(t, ctx, pool, exactTx.Conn().PgConn().PID())
+
+	foreignTx := beginSessionIntegrationTx(t, ctx, pool, "concurrent pairing claim foreign retry")
+	foreignResult := make(chan error, 1)
+	go func() {
+		foreignResult <- repository.claimOpenPairingAttempt(ctx, foreignTx, attempt.id.String(), foreign)
+	}()
+	waitForPairingAttemptRowLock(t, ctx, pool, foreignTx.Conn().PgConn().PID())
+	if err := winnerTx.Commit(ctx); err != nil {
+		t.Fatalf("commit concurrent pairing claim winner: %v", err)
+	}
+	if err := <-exactResult; err != nil {
+		t.Fatalf("claimOpenPairingAttempt(concurrent exact retry) error = %v", err)
+	}
+	if err := exactTx.Commit(ctx); err != nil {
+		t.Fatalf("commit concurrent exact retry: %v", err)
+	}
+	if err := <-foreignResult; !errors.Is(err, ErrPairingAttemptUnavailable) {
+		t.Fatalf("claimOpenPairingAttempt(concurrent foreign retry) error = %v", err)
+	}
+	rollbackSessionIntegrationTx(t, foreignTx, "concurrent pairing claim foreign retry")
+	assertPairingAttemptClaimed(t, ctx, pool, attempt.id.String(), winner, claimedAt)
+}
+
+func assertPairingAttemptClaimCommitReconciliation(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	repository *Repository,
+	createdAt time.Time,
+) {
+	t.Helper()
+	attempt := newPairingAttemptRepositoryFixture(t, createdAt)
+	deletePairingAttemptFixture(t, pool, attempt.id.String())
+	t.Cleanup(func() { deletePairingAttemptFixture(t, pool, attempt.id.String()) })
+	createTx := beginSessionIntegrationTx(t, ctx, pool, "ambiguous pairing claim create")
+	if err := repository.CreatePairingAttempt(ctx, createTx, attempt); err != nil {
+		t.Fatalf("CreatePairingAttempt(ambiguous claim fixture) error = %v", err)
+	}
+	if err := createTx.Commit(ctx); err != nil {
+		t.Fatalf("commit ambiguous pairing claim fixture: %v", err)
+	}
+	claim, err := NewPairingAttemptClaim(validPairingAttemptClaimSpec(t))
+	if err != nil {
+		t.Fatalf("NewPairingAttemptClaim(ambiguous) error = %v", err)
+	}
+	claimedAt := createdAt.Add(time.Minute)
+	repository.now = func() time.Time { return claimedAt }
+	ackErr := errors.New("claim commit acknowledgement lost")
+	ambiguousService, err := newPairingAttemptService(
+		&commitAcknowledgementLostStarter{pool: pool, err: ackErr}, repository,
+	)
+	if err != nil {
+		t.Fatalf("newPairingAttemptService(ambiguous) error = %v", err)
+	}
+	if claimErr := ambiguousService.claim(
+		ctx, attempt.id.String(), claim,
+	); !errors.Is(claimErr, ErrPairingAttemptCommitOutcomeUnknown) || !errors.Is(claimErr, ackErr) {
+		t.Fatalf("claim(ambiguous committed outcome) error = %v", claimErr)
+	}
+	assertPairingAttemptClaimed(t, ctx, pool, attempt.id.String(), claim, claimedAt)
+
+	service, err := newPairingAttemptService(pool, repository)
+	if err != nil {
+		t.Fatalf("newPairingAttemptService(reconcile) error = %v", err)
+	}
+	if err := service.claim(ctx, attempt.id.String(), claim); err != nil {
+		t.Fatalf("claim(reconcile exact) error = %v", err)
+	}
+	foreignSpec := validPairingAttemptClaimSpec(t)
+	foreignSpec.Actor = newSessionTestActor(t, "2123456789abcdef0123456789abcdef")
+	foreign, err := NewPairingAttemptClaim(foreignSpec)
+	if err != nil {
+		t.Fatalf("NewPairingAttemptClaim(reconcile foreign) error = %v", err)
+	}
+	if claimErr := service.claim(
+		ctx, attempt.id.String(), foreign,
+	); !errors.Is(claimErr, ErrPairingAttemptUnavailable) {
+		t.Fatalf("claim(reconcile foreign) error = %v", claimErr)
+	}
+	assertPairingAttemptClaimed(t, ctx, pool, attempt.id.String(), claim, claimedAt)
+}
+
 func assertPairingAttemptExpiresWhileWaiting(
 	t *testing.T,
 	ctx context.Context,
@@ -405,6 +663,49 @@ func assertPairingAttemptFailureCount(
 	}
 }
 
+func assertPairingAttemptClaimed(
+	t *testing.T,
+	ctx context.Context,
+	reader sessionRowReader,
+	id string,
+	want PairingAttemptClaim,
+	wantClaimedAt time.Time,
+) {
+	t.Helper()
+	var state, ownerID, deviceID, displayName, platform, fingerprint string
+	var publicKey []byte
+	var claimedAt, updatedAt time.Time
+	var hasNoConfirmation bool
+	if err := reader.QueryRow(ctx, `
+		SELECT state, claimed_user_id, device_id, device_display_name, device_platform,
+		       device_static_public_key, device_key_fingerprint, claimed_at, updated_at,
+		       mobile_channel_binding IS NULL AND mobile_confirmed_at IS NULL
+		         AND agent_channel_binding IS NULL AND agent_confirmed_at IS NULL
+		         AND consumed_at IS NULL
+		FROM session.pairing_attempts WHERE id = $1`, id,
+	).Scan(
+		&state, &ownerID, &deviceID, &displayName, &platform, &publicKey, &fingerprint,
+		&claimedAt, &updatedAt, &hasNoConfirmation,
+	); err != nil {
+		t.Fatalf("read claimed pairing attempt: %v", err)
+	}
+	wantPublicKey, err := want.devicePublicKey.Bytes()
+	if err != nil {
+		t.Fatalf("read wanted device public key: %v", err)
+	}
+	wantFingerprint, err := want.deviceFingerprint.String()
+	if err != nil {
+		t.Fatalf("read wanted device fingerprint: %v", err)
+	}
+	if state != string(pairingAttemptStateClaimed) || ownerID != want.ownerID.String() ||
+		deviceID != want.deviceID.String() || displayName != want.deviceDisplayName ||
+		platform != string(want.devicePlatform) || !bytes.Equal(publicKey, wantPublicKey) ||
+		fingerprint != wantFingerprint || !claimedAt.Equal(wantClaimedAt) ||
+		!updatedAt.Equal(wantClaimedAt) || !hasNoConfirmation {
+		t.Fatal("stored pairing attempt did not preserve the exact owner-bound claim")
+	}
+}
+
 func assertStoredPairingAttempt(
 	t *testing.T,
 	ctx context.Context,
@@ -487,4 +788,29 @@ func deletePairingAttemptFixture(t *testing.T, pool *pgxpool.Pool, id string) {
 	if _, err := pool.Exec(cleanupCtx, `DELETE FROM session.pairing_attempts WHERE id = $1`, id); err != nil {
 		t.Fatalf("delete pairing attempt fixture: %v", err)
 	}
+}
+
+type commitAcknowledgementLostStarter struct {
+	pool *pgxpool.Pool
+	err  error
+}
+
+func (starter *commitAcknowledgementLostStarter) Begin(ctx context.Context) (pgx.Tx, error) {
+	tx, err := starter.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &commitAcknowledgementLostTx{Tx: tx, err: starter.err}, nil
+}
+
+type commitAcknowledgementLostTx struct {
+	pgx.Tx
+	err error
+}
+
+func (tx *commitAcknowledgementLostTx) Commit(ctx context.Context) error {
+	if err := tx.Tx.Commit(ctx); err != nil {
+		return err
+	}
+	return tx.err
 }

@@ -9,8 +9,11 @@ import (
 
 	"github.com/hgunduzoglu/coderoam/packages/go/cryptox"
 	"github.com/hgunduzoglu/coderoam/packages/go/ids"
+	"github.com/hgunduzoglu/coderoam/services/control-plane/internal/auth"
+	"github.com/hgunduzoglu/coderoam/services/control-plane/internal/device"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 var (
@@ -221,6 +224,195 @@ func (repository *Repository) authenticateOpenPairingAttempt(
 		return PairingAttempt{}, false, ErrPairingAttemptUnavailable
 	}
 	return PairingAttempt{}, false, nil
+}
+
+// claimOpenPairingAttempt binds one authenticated owner and canonical mobile
+// candidate while the usable open attempt remains locked by the caller's transaction.
+// An exact retry of a committed claim is idempotent; every mismatch is unavailable.
+func (repository *Repository) claimOpenPairingAttempt(
+	ctx context.Context,
+	tx pgx.Tx,
+	encodedID string,
+	claim PairingAttemptClaim,
+) error {
+	if ctx == nil || repository == nil || repository.now == nil || repository.operationMax <= 0 {
+		return ErrPairingAttemptPersistenceUnavailable
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if tx == nil {
+		return ErrPairingAttemptPersistenceUnavailable
+	}
+	if !claim.valid() {
+		return ErrInvalidPairingAttemptClaim
+	}
+
+	attempt, err := repository.LockOpenPairingAttempt(ctx, tx, encodedID)
+	if err != nil {
+		if errors.Is(err, ErrInvalidPairingAttempt) || errors.Is(err, ErrPairingAttemptUnavailable) {
+			return repository.matchClaimedPairingAttempt(ctx, tx, encodedID, claim)
+		}
+		return err
+	}
+	if attempt.protocolVersion != claim.protocolVersion ||
+		!attempt.agentPublicKey.Equal(claim.expectedAgentPublicKey) ||
+		!attempt.agentFingerprint.Equal(claim.expectedAgentFingerprint) {
+		return ErrPairingAttemptUnavailable
+	}
+	claimedAt := attempt.lockedAt.UTC().Truncate(time.Microsecond)
+	if claimedAt.Before(attempt.updatedAt) || !attempt.expiresAt.After(claimedAt) {
+		return ErrPairingAttemptUnavailable
+	}
+	publicKey, err := claim.devicePublicKey.Bytes()
+	if err != nil {
+		return ErrInvalidPairingAttemptClaim
+	}
+	fingerprint, err := claim.deviceFingerprint.String()
+	if err != nil {
+		return ErrInvalidPairingAttemptClaim
+	}
+	operationCtx, cancelOperation := context.WithTimeout(ctx, repository.operationMax)
+	defer cancelOperation()
+
+	result, err := tx.Exec(operationCtx, `
+		UPDATE session.pairing_attempts
+		SET state = 'claimed', claimed_user_id = $1, device_id = $2,
+		    device_display_name = $3, device_platform = $4,
+		    device_static_public_key = $5, device_key_fingerprint = $6,
+		    claimed_at = $7, updated_at = $7
+		WHERE id = $8
+		  AND state = 'open'
+		  AND failed_attempt_count = $9 AND failed_attempt_count < $10
+		  AND created_at <= $7 AND updated_at = $11 AND expires_at > $7
+		  AND claimed_user_id IS NULL AND device_id IS NULL
+		  AND device_display_name IS NULL AND device_platform IS NULL
+		  AND device_static_public_key IS NULL AND device_key_fingerprint IS NULL
+		  AND claimed_at IS NULL
+		  AND mobile_channel_binding IS NULL AND mobile_confirmed_at IS NULL
+		  AND agent_channel_binding IS NULL AND agent_confirmed_at IS NULL
+		  AND consumed_at IS NULL`,
+		claim.ownerID.String(), claim.deviceID.String(), claim.deviceDisplayName,
+		string(claim.devicePlatform), publicKey, fingerprint, claimedAt, attempt.id.String(),
+		attempt.failedAttemptCount, maxPairingAttemptFailures, attempt.updatedAt,
+	)
+	if err != nil {
+		return pairingAttemptPersistenceError("claim open", err)
+	}
+	if result.RowsAffected() != 1 {
+		return ErrPairingAttemptUnavailable
+	}
+	return nil
+}
+
+func (repository *Repository) matchClaimedPairingAttempt(
+	ctx context.Context,
+	tx pgx.Tx,
+	encodedID string,
+	claim PairingAttemptClaim,
+) error {
+	attemptID, err := ids.Parse(encodedID)
+	if err != nil {
+		return ErrPairingAttemptUnavailable
+	}
+	checkedAt := repository.now().UTC()
+	if checkedAt.IsZero() {
+		return ErrPairingAttemptPersistenceUnavailable
+	}
+	operationCtx, cancelOperation := context.WithTimeout(ctx, repository.operationMax)
+	defer cancelOperation()
+
+	var agentPublicKey, bootstrapHash, devicePublicKey []byte
+	var agentFingerprint, agentDisplayName, agentVersion, relayRegion string
+	var claimedUserID, deviceID, deviceDisplayName, devicePlatform, deviceFingerprint pgtype.Text
+	var protocolVersion, failedAttemptCount int
+	var expiresAt, createdAt, updatedAt time.Time
+	var claimedAt pgtype.Timestamptz
+	err = tx.QueryRow(operationCtx, `
+		SELECT agent_static_public_key, agent_key_fingerprint, agent_display_name,
+		       agent_version, protocol_version, relay_region, bootstrap_credential_hash,
+		       expires_at, failed_attempt_count, created_at, updated_at,
+		       claimed_user_id, device_id, device_display_name, device_platform,
+		       device_static_public_key, device_key_fingerprint, claimed_at
+		FROM session.pairing_attempts
+		WHERE id = $1
+		  AND state = 'claimed'
+		  AND created_at <= $2 AND updated_at <= $2 AND expires_at > $2
+		  AND failed_attempt_count < $3
+		  AND mobile_channel_binding IS NULL AND mobile_confirmed_at IS NULL
+		  AND agent_channel_binding IS NULL AND agent_confirmed_at IS NULL
+		  AND consumed_at IS NULL
+		FOR UPDATE`, attemptID.String(), checkedAt, maxPairingAttemptFailures).Scan(
+		&agentPublicKey, &agentFingerprint, &agentDisplayName, &agentVersion,
+		&protocolVersion, &relayRegion, &bootstrapHash, &expiresAt, &failedAttemptCount,
+		&createdAt, &updatedAt, &claimedUserID, &deviceID, &deviceDisplayName,
+		&devicePlatform, &devicePublicKey, &deviceFingerprint, &claimedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrPairingAttemptUnavailable
+	}
+	if err != nil {
+		return pairingAttemptPersistenceError("match claimed", err)
+	}
+	if !claimedUserID.Valid || !deviceID.Valid || !deviceDisplayName.Valid || !devicePlatform.Valid ||
+		!deviceFingerprint.Valid || !claimedAt.Valid {
+		return ErrPairingAttemptUnavailable
+	}
+	lockedAt := repository.now().UTC()
+	if lockedAt.IsZero() || lockedAt.Before(checkedAt) || createdAt.After(lockedAt) ||
+		updatedAt.After(lockedAt) || !expiresAt.After(lockedAt) {
+		return ErrPairingAttemptUnavailable
+	}
+
+	storedAgentKey, err := cryptox.ParseX25519PublicKey(agentPublicKey)
+	if err != nil {
+		return ErrPairingAttemptUnavailable
+	}
+	attempt, err := NewPairingAttempt(PairingAttemptSpec{
+		ID: attemptID.String(), AgentPublicKey: storedAgentKey,
+		AgentDisplayName: agentDisplayName, AgentVersion: agentVersion,
+		ProtocolVersion: protocolVersion, RelayRegion: relayRegion,
+		BootstrapCredentialHash: bootstrapHash, CreatedAt: createdAt, ExpiresAt: expiresAt,
+	})
+	if err != nil || attempt.agentDisplayName != agentDisplayName || attempt.agentVersion != agentVersion ||
+		failedAttemptCount < 0 || failedAttemptCount >= maxPairingAttemptFailures ||
+		attempt.protocolVersion != claim.protocolVersion ||
+		!attempt.agentPublicKey.Equal(claim.expectedAgentPublicKey) ||
+		!attempt.agentFingerprint.Equal(claim.expectedAgentFingerprint) {
+		return ErrPairingAttemptUnavailable
+	}
+	storedAgentFingerprint, err := cryptox.ParseX25519Fingerprint(agentFingerprint)
+	if err != nil || !attempt.agentFingerprint.Equal(storedAgentFingerprint) {
+		return ErrPairingAttemptUnavailable
+	}
+	storedOwnerID, err := auth.ParseUserID(claimedUserID.String)
+	if err != nil || storedOwnerID != claim.ownerID {
+		return ErrPairingAttemptUnavailable
+	}
+	storedDeviceID, err := ids.Parse(deviceID.String)
+	if err != nil || storedDeviceID != claim.deviceID {
+		return ErrPairingAttemptUnavailable
+	}
+	storedDeviceKey, err := cryptox.ParseX25519PublicKey(devicePublicKey)
+	if err != nil || !storedDeviceKey.Equal(claim.devicePublicKey) {
+		return ErrPairingAttemptUnavailable
+	}
+	storedDeviceFingerprint, err := cryptox.ParseX25519Fingerprint(deviceFingerprint.String)
+	if err != nil || !storedDeviceFingerprint.Equal(claim.deviceFingerprint) {
+		return ErrPairingAttemptUnavailable
+	}
+	normalizedName, ok := normalizedPairingText(
+		deviceDisplayName.String, maxPairingDeviceNameRunes, maxPairingDeviceNameBytes,
+	)
+	if !ok || normalizedName != deviceDisplayName.String ||
+		deviceDisplayName.String != claim.deviceDisplayName ||
+		!validPairingDevicePlatform(device.Platform(devicePlatform.String)) ||
+		device.Platform(devicePlatform.String) != claim.devicePlatform ||
+		claimedAt.Time.Before(createdAt) || !expiresAt.After(claimedAt.Time) ||
+		!updatedAt.Equal(claimedAt.Time) {
+		return ErrPairingAttemptUnavailable
+	}
+	return nil
 }
 
 func pairingAttemptPersistenceError(operation string, err error) error {

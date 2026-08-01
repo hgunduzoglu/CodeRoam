@@ -297,6 +297,7 @@ compatibility seams rather than delivered as one large file replacement.
 - [x] Implement open pairing-attempt domain validation and lock-based repository create/load
   persistence.
 - [x] Implement domain-separated bootstrap-credential authentication and bounded failure accounting.
+- [x] Implement the owner-bound mobile claim transition with exact idempotent retries.
 - [ ] Implement claim/confirmation state transitions.
 - [ ] Backfill and constrain device/workspace canonical fingerprints.
 - [ ] Implement device-owned and workspace-owned registration/listing boundaries.
@@ -382,6 +383,17 @@ compatibility seams rather than delivered as one large file replacement.
   remains package-private and has no production caller until the confirmation slice can perform its
   typed mutation under the same lock and transaction. Claim and confirmation transitions remain a
   separate slice.
+- 2026-08-01: Construct the mobile claim only from an authenticated owner, the QR-bound expected
+  agent public key/protocol, and a canonical bounded device candidate, deriving both fingerprints
+  from their public keys. Apply a new claim only when that expected agent identity exactly matches
+  the locked server candidate. Apply the transition while the usable open attempt is row-locked,
+  and commit it through a transaction-owning internal
+  service. An exact retry of a committed claim is idempotent and preserves the original claim
+  timestamp; a foreign owner, changed expected agent key, changed device ID, name, platform, key,
+  expired attempt, exhausted attempt, or corrupt persisted candidate shares the unavailable result.
+  A commit error remains an
+  unknown outcome and must be reconciled with the same pairing ID and exact claim. Endpoint
+  confirmations and consumption remain separate reviewed slices.
 - 2026-07-24: Sign exact pairing ticket claims with Ed25519 and separate pairing purpose from future
   session purpose. Keep signing material only in the control plane and verification keys in the
   relay; keep ticket/replay state short-lived and metadata-only.

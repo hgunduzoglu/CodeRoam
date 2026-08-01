@@ -67,3 +67,15 @@ ambiguous commit grants no authentication and returns a distinct reconciliation 
 check is deliberately not exposed as an authorization capability; the confirmation slice must keep
 verification and its typed mutation under this same row lock and transaction. Clock rollback,
 cancellation before mutation, exhausted attempts, and expiry fail closed.
+
+`NewPairingAttemptClaim` accepts only an authenticated owner, the QR-bound expected agent public
+key/protocol, and a bounded canonical mobile candidate. It normalizes the device display name,
+restricts the platform, rejects zero or malformed public keys, and derives both canonical
+fingerprints instead of accepting fingerprint text. The locked attempt must contain the exact
+expected agent identity before the claim can be written.
+The package-private pairing-attempt service applies the claim while the open attempt remains locked
+inside one bounded PostgreSQL transaction. An exact retry after commit is idempotent and preserves
+the first claim timestamp. Foreign owners, changed device metadata or keys, expired/exhausted rows,
+and corrupt stored candidates share the unavailable result. A commit error is an unknown outcome;
+callers must retry the same pairing ID and exact claim. No claim registers a device or agent, and
+endpoint confirmation plus atomic consumption remain later M3 transitions.

@@ -11,24 +11,25 @@ import (
 
 var ErrPairingAttemptCommitOutcomeUnknown = errors.New("pairing attempt commit outcome unknown")
 
-type pairingAttemptCredentialStore interface {
+type pairingAttemptStore interface {
 	authenticateOpenPairingAttempt(
 		context.Context,
 		pgx.Tx,
 		string,
 		[]byte,
 	) (PairingAttempt, bool, error)
+	claimOpenPairingAttempt(context.Context, pgx.Tx, string, PairingAttemptClaim) error
 }
 
 type pairingAttemptService struct {
 	transactions transactionStarter
-	attempts     pairingAttemptCredentialStore
+	attempts     pairingAttemptStore
 	operationMax time.Duration
 }
 
 func newPairingAttemptService(
 	transactions transactionStarter,
-	attempts pairingAttemptCredentialStore,
+	attempts pairingAttemptStore,
 ) (*pairingAttemptService, error) {
 	if transactions == nil || attempts == nil {
 		return nil, errors.New("pairing attempt service repositories are required")
@@ -102,6 +103,64 @@ func (service *pairingAttemptService) authenticateBootstrapCredential(
 	}
 	if !matched {
 		return ErrPairingAttemptUnavailable
+	}
+	return nil
+}
+
+// claim binds one authenticated owner and mobile candidate in a single bounded
+// transaction. A commit error is an unknown outcome and must be reconciled by
+// retrying the exact same pairing ID and claim.
+func (service *pairingAttemptService) claim(
+	ctx context.Context,
+	encodedID string,
+	claim PairingAttemptClaim,
+) (err error) {
+	if ctx == nil || service == nil || service.transactions == nil || service.attempts == nil ||
+		service.operationMax <= 0 {
+		return ErrPairingAttemptPersistenceUnavailable
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !claim.valid() {
+		return ErrInvalidPairingAttemptClaim
+	}
+
+	operationCtx, cancelOperation := context.WithTimeout(ctx, service.operationMax)
+	defer cancelOperation()
+	tx, beginErr := service.transactions.Begin(operationCtx)
+	if tx == nil {
+		return pairingAttemptServiceError("begin claim", beginErr)
+	}
+	defer func() {
+		rollbackCtx, cancelRollback := context.WithTimeout(context.WithoutCancel(ctx), serviceCleanupTimeout)
+		defer cancelRollback()
+		rollbackErr := tx.Rollback(rollbackCtx)
+		if rollbackErr == nil || errors.Is(rollbackErr, pgx.ErrTxClosed) {
+			return
+		}
+		rollbackErr = pairingAttemptServiceError("rollback claim", rollbackErr)
+		if err == nil {
+			err = rollbackErr
+			return
+		}
+		err = errors.Join(err, rollbackErr)
+	}()
+	if beginErr != nil {
+		return pairingAttemptServiceError("begin claim", beginErr)
+	}
+
+	if claimErr := service.attempts.claimOpenPairingAttempt(
+		operationCtx, tx, encodedID, claim,
+	); claimErr != nil {
+		if errors.Is(claimErr, ErrPairingAttemptUnavailable) ||
+			errors.Is(claimErr, ErrInvalidPairingAttemptClaim) {
+			return claimErr
+		}
+		return pairingAttemptServiceError("claim", claimErr)
+	}
+	if commitErr := tx.Commit(operationCtx); commitErr != nil {
+		return fmt.Errorf("%w: %w", ErrPairingAttemptCommitOutcomeUnknown, commitErr)
 	}
 	return nil
 }
