@@ -55,6 +55,7 @@ func TestPairingAttemptRepositoryIntegration(t *testing.T) {
 		t.Fatalf("commit pairing attempt: %v", err)
 	}
 	assertStoredPairingAttempt(t, ctx, pool, committed)
+	assertPairingBootstrapCredentialAuthentication(t, ctx, pool, repository, createdAt.Add(2*time.Minute))
 
 	duplicateTx := beginSessionIntegrationTx(t, ctx, pool, "pairing attempt duplicate")
 	if err := repository.CreatePairingAttempt(
@@ -152,6 +153,149 @@ func TestPairingAttemptRepositoryIntegration(t *testing.T) {
 	assertOpenPairingAttemptUnavailable(t, ctx, pool, repository, committed.id.String(), checkedAt)
 }
 
+func assertPairingBootstrapCredentialAuthentication(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	repository *Repository,
+	createdAt time.Time,
+) {
+	t.Helper()
+	attempt := newPairingAttemptRepositoryFixture(t, createdAt)
+	deletePairingAttemptFixture(t, pool, attempt.id.String())
+	t.Cleanup(func() { deletePairingAttemptFixture(t, pool, attempt.id.String()) })
+
+	createTx := beginSessionIntegrationTx(t, ctx, pool, "pairing credential create")
+	if err := repository.CreatePairingAttempt(ctx, createTx, attempt); err != nil {
+		t.Fatalf("CreatePairingAttempt(credential fixture) error = %v", err)
+	}
+	if err := createTx.Commit(ctx); err != nil {
+		t.Fatalf("commit pairing credential fixture: %v", err)
+	}
+	service, err := newPairingAttemptService(pool, repository)
+	if err != nil {
+		t.Fatalf("newPairingAttemptService() error = %v", err)
+	}
+
+	checkedAt := createdAt.Add(time.Minute)
+	repository.now = func() time.Time { return checkedAt }
+	successTx := beginSessionIntegrationTx(t, ctx, pool, "pairing credential success")
+	authenticated, matched, err := repository.authenticateOpenPairingAttempt(
+		ctx, successTx, attempt.id.String(), validPairingBootstrapCredential(),
+	)
+	if err != nil || !matched {
+		t.Fatalf("authenticateOpenPairingAttempt(valid) matched = %t, error = %v", matched, err)
+	}
+	if authenticated.id != attempt.id || authenticated.failedAttemptCount != 0 ||
+		!authenticated.lockedAt.Equal(checkedAt) {
+		t.Fatal("AuthenticateOpenPairingAttempt(valid) returned inconsistent locked metadata")
+	}
+	assertPairingAttemptFailureCount(t, ctx, successTx, attempt.id.String(), 0)
+	rollbackSessionIntegrationTx(t, successTx, "pairing credential success")
+
+	wrongCredential := bytes.Repeat([]byte{0x6b}, pairingBootstrapCredentialLen)
+	rolledBackTx := beginSessionIntegrationTx(t, ctx, pool, "pairing credential failure rollback")
+	if _, matched, err := repository.authenticateOpenPairingAttempt(
+		ctx, rolledBackTx, attempt.id.String(), wrongCredential,
+	); err != nil || matched {
+		t.Fatalf("authenticateOpenPairingAttempt(wrong rollback) matched = %t, error = %v", matched, err)
+	}
+	assertPairingAttemptFailureCount(t, ctx, rolledBackTx, attempt.id.String(), 1)
+	assertPairingAttemptFailureCount(t, ctx, pool, attempt.id.String(), 0)
+	rollbackSessionIntegrationTx(t, rolledBackTx, "pairing credential failure rollback")
+	assertPairingAttemptFailureCount(t, ctx, pool, attempt.id.String(), 0)
+
+	if err := service.authenticateBootstrapCredential(
+		ctx, attempt.id.String(), nil,
+	); !errors.Is(err, ErrPairingAttemptUnavailable) {
+		t.Fatalf("authenticateBootstrapCredential(malformed) error = %v", err)
+	}
+	assertPairingAttemptFailureCount(t, ctx, pool, attempt.id.String(), 1)
+
+	retryTx := beginSessionIntegrationTx(t, ctx, pool, "pairing credential valid retry")
+	authenticated, matched, err = repository.authenticateOpenPairingAttempt(
+		ctx, retryTx, attempt.id.String(), validPairingBootstrapCredential(),
+	)
+	if err != nil || !matched {
+		t.Fatalf("authenticateOpenPairingAttempt(valid retry) matched = %t, error = %v", matched, err)
+	}
+	if authenticated.failedAttemptCount != 1 {
+		t.Fatalf("authenticated failed count = %d, want 1", authenticated.failedAttemptCount)
+	}
+	rollbackSessionIntegrationTx(t, retryTx, "pairing credential valid retry")
+
+	for wantFailures := 2; wantFailures <= maxPairingAttemptFailures; wantFailures++ {
+		if err := service.authenticateBootstrapCredential(
+			ctx, attempt.id.String(), wrongCredential,
+		); !errors.Is(err, ErrPairingAttemptUnavailable) {
+			t.Fatalf("authenticateBootstrapCredential(exhaust %d) error = %v", wantFailures, err)
+		}
+		assertPairingAttemptFailureCount(t, ctx, pool, attempt.id.String(), wantFailures)
+	}
+	assertPairingAttemptFailureCount(t, ctx, pool, attempt.id.String(), maxPairingAttemptFailures)
+
+	if err := service.authenticateBootstrapCredential(
+		ctx, attempt.id.String(), validPairingBootstrapCredential(),
+	); !errors.Is(err, ErrPairingAttemptUnavailable) {
+		t.Fatalf("authenticateBootstrapCredential(exhausted valid) error = %v", err)
+	}
+
+	assertPairingBootstrapCredentialTimeBoundary(t, ctx, pool, repository, createdAt.Add(time.Minute))
+}
+
+func assertPairingBootstrapCredentialTimeBoundary(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	repository *Repository,
+	createdAt time.Time,
+) {
+	t.Helper()
+	attempt := newPairingAttemptRepositoryFixture(t, createdAt)
+	deletePairingAttemptFixture(t, pool, attempt.id.String())
+	t.Cleanup(func() { deletePairingAttemptFixture(t, pool, attempt.id.String()) })
+	createTx := beginSessionIntegrationTx(t, ctx, pool, "pairing credential time create")
+	if err := repository.CreatePairingAttempt(ctx, createTx, attempt); err != nil {
+		t.Fatalf("CreatePairingAttempt(time fixture) error = %v", err)
+	}
+	if err := createTx.Commit(ctx); err != nil {
+		t.Fatalf("commit pairing credential time fixture: %v", err)
+	}
+
+	var calls atomic.Int64
+	repository.now = func() time.Time {
+		if calls.Add(1) <= 2 {
+			return attempt.expiresAt.Add(-time.Microsecond)
+		}
+		return attempt.expiresAt
+	}
+	expiryTx := beginSessionIntegrationTx(t, ctx, pool, "pairing credential exact expiry")
+	if _, matched, err := repository.authenticateOpenPairingAttempt(
+		ctx, expiryTx, attempt.id.String(), validPairingBootstrapCredential(),
+	); !errors.Is(err, ErrPairingAttemptUnavailable) || matched {
+		t.Fatalf("authenticateOpenPairingAttempt(exact expiry) matched = %t, error = %v", matched, err)
+	}
+	assertPairingAttemptFailureCount(t, ctx, expiryTx, attempt.id.String(), 0)
+	rollbackSessionIntegrationTx(t, expiryTx, "pairing credential exact expiry")
+
+	calls.Store(0)
+	lockedAt := attempt.createdAt.Add(time.Minute)
+	repository.now = func() time.Time {
+		if calls.Add(1) <= 2 {
+			return lockedAt
+		}
+		return lockedAt.Add(-time.Microsecond)
+	}
+	backwardTx := beginSessionIntegrationTx(t, ctx, pool, "pairing credential backward clock")
+	if _, matched, err := repository.authenticateOpenPairingAttempt(
+		ctx, backwardTx, attempt.id.String(), validPairingBootstrapCredential(),
+	); !errors.Is(err, ErrPairingAttemptPersistenceUnavailable) || matched {
+		t.Fatalf("authenticateOpenPairingAttempt(backward clock) matched = %t, error = %v", matched, err)
+	}
+	assertPairingAttemptFailureCount(t, ctx, backwardTx, attempt.id.String(), 0)
+	rollbackSessionIntegrationTx(t, backwardTx, "pairing credential backward clock")
+}
+
 func assertPairingAttemptExpiresWhileWaiting(
 	t *testing.T,
 	ctx context.Context,
@@ -230,11 +374,35 @@ func newPairingAttemptRepositoryFixture(t *testing.T, createdAt time.Time) Pairi
 	spec.ID = id.String()
 	spec.CreatedAt = createdAt
 	spec.ExpiresAt = createdAt.Add(maxPairingAttemptLifetime)
+	hash, err := HashPairingBootstrapCredential(spec.ID, validPairingBootstrapCredential())
+	if err != nil {
+		t.Fatalf("HashPairingBootstrapCredential(fixture) error = %v", err)
+	}
+	spec.BootstrapCredentialHash = hash[:]
 	attempt, err := NewPairingAttempt(spec)
 	if err != nil {
 		t.Fatalf("NewPairingAttempt(fixture) error = %v", err)
 	}
 	return attempt
+}
+
+func assertPairingAttemptFailureCount(
+	t *testing.T,
+	ctx context.Context,
+	reader sessionRowReader,
+	id string,
+	want int,
+) {
+	t.Helper()
+	var got int
+	if err := reader.QueryRow(ctx, `
+		SELECT failed_attempt_count FROM session.pairing_attempts WHERE id = $1`, id,
+	).Scan(&got); err != nil {
+		t.Fatalf("read pairing-attempt failure count: %v", err)
+	}
+	if got != want {
+		t.Fatalf("pairing-attempt failure count = %d, want %d", got, want)
+	}
 }
 
 func assertStoredPairingAttempt(

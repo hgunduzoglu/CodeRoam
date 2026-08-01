@@ -296,7 +296,8 @@ compatibility seams rather than delivered as one large file replacement.
   migration coverage.
 - [x] Implement open pairing-attempt domain validation and lock-based repository create/load
   persistence.
-- [ ] Implement bootstrap-credential authentication and claim/confirmation state transitions.
+- [x] Implement domain-separated bootstrap-credential authentication and bounded failure accounting.
+- [ ] Implement claim/confirmation state transitions.
 - [ ] Backfill and constrain device/workspace canonical fingerprints.
 - [ ] Implement device-owned and workspace-owned registration/listing boundaries.
 - [ ] Implement signed agent artifact generation and verification documentation.
@@ -371,6 +372,16 @@ compatibility seams rather than delivered as one large file replacement.
   inside the caller-owned transaction; missing, future, expired, exhausted, non-open,
   noncanonical, and partial rows share one unavailable result. Credential verification and state
   mutation remain separate reviewed slices.
+- 2026-08-01: Derive each stored bootstrap-credential hash from a versioned CodeRoam domain, the
+  canonical pairing ID, and the exact 256-bit credential. Authenticate only after locking a usable
+  open attempt, compare fixed-size digests in constant time, and recheck expiry and clock ordering
+  after hashing. Wrong, zero, and malformed credentials share the unavailable result and increment
+  the bounded failure count as a normal internal outcome. A transaction-owning service commits that
+  outcome through a cancellation-independent bounded context before mapping it to unavailable, and
+  reports an ambiguous commit separately without granting authentication. Successful verification
+  remains package-private and has no production caller until the confirmation slice can perform its
+  typed mutation under the same lock and transaction. Claim and confirmation transitions remain a
+  separate slice.
 - 2026-07-24: Sign exact pairing ticket claims with Ed25519 and separate pairing purpose from future
   session purpose. Keep signing material only in the control plane and verification keys in the
   relay; keep ticket/replay state short-lived and metadata-only.

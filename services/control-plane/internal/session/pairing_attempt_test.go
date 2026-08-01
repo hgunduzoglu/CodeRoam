@@ -3,6 +3,7 @@ package session
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 func TestNewPairingAttemptNormalizesAndCopiesBoundedMetadata(t *testing.T) {
 	spec := validPairingAttemptSpec(t)
 	hashInput := spec.BootstrapCredentialHash
+	wantHash := append([]byte(nil), hashInput...)
 	wantFingerprint, err := cryptox.FingerprintX25519PublicKey(spec.AgentPublicKey)
 	if err != nil {
 		t.Fatalf("FingerprintX25519PublicKey() error = %v", err)
@@ -26,12 +28,64 @@ func TestNewPairingAttemptNormalizesAndCopiesBoundedMetadata(t *testing.T) {
 	if attempt.id.String() != spec.ID || !attempt.agentPublicKey.Equal(spec.AgentPublicKey) ||
 		!attempt.agentFingerprint.Equal(wantFingerprint) || attempt.agentDisplayName != "M3 agent" ||
 		attempt.agentVersion != "0.1.0" || attempt.protocolVersion != pairingAttemptProtocolVersion ||
-		attempt.relayRegion != "eu-test-1" || attempt.bootstrapCredentialHash[0] != 0x24 ||
+		attempt.relayRegion != "eu-test-1" || !bytes.Equal(attempt.bootstrapCredentialHash[:], wantHash) ||
 		attempt.failedAttemptCount != 0 || attempt.state != pairingAttemptStateOpen ||
 		!attempt.createdAt.Equal(spec.CreatedAt) || attempt.createdAt.Location() != time.UTC ||
 		!attempt.expiresAt.Equal(spec.ExpiresAt) || attempt.expiresAt.Location() != time.UTC ||
 		!attempt.updatedAt.Equal(spec.CreatedAt) {
 		t.Fatal("NewPairingAttempt() did not preserve canonical open-attempt metadata")
+	}
+}
+
+func TestHashPairingBootstrapCredentialBindsCanonicalAttempt(t *testing.T) {
+	id := strings.Repeat("a", 32)
+	credential := validPairingBootstrapCredential()
+	digest, err := HashPairingBootstrapCredential(id, credential)
+	if err != nil {
+		t.Fatalf("HashPairingBootstrapCredential() error = %v", err)
+	}
+	const want = "14d85226f406aab079655f9db630c899a93f55ae4368c8bfdf5a392d1107c316"
+	if got := fmt.Sprintf("%x", digest); got != want {
+		t.Fatalf("HashPairingBootstrapCredential() = %s, want %s", got, want)
+	}
+	if !bytes.Equal(credential, validPairingBootstrapCredential()) {
+		t.Fatal("HashPairingBootstrapCredential() mutated caller-owned credential bytes")
+	}
+
+	otherIDHash, err := HashPairingBootstrapCredential(strings.Repeat("b", 32), credential)
+	if err != nil {
+		t.Fatalf("HashPairingBootstrapCredential(other id) error = %v", err)
+	}
+	otherCredential := append([]byte(nil), credential...)
+	otherCredential[0] ^= 0xff
+	otherCredentialHash, err := HashPairingBootstrapCredential(id, otherCredential)
+	if err != nil {
+		t.Fatalf("HashPairingBootstrapCredential(other credential) error = %v", err)
+	}
+	if bytes.Equal(digest[:], otherIDHash[:]) || bytes.Equal(digest[:], otherCredentialHash[:]) {
+		t.Fatal("bootstrap credential hash was not bound to both attempt id and credential")
+	}
+}
+
+func TestHashPairingBootstrapCredentialRejectsInvalidInput(t *testing.T) {
+	id := strings.Repeat("a", 32)
+	tests := map[string]struct {
+		id         string
+		credential []byte
+	}{
+		"invalid id":       {id: "invalid", credential: validPairingBootstrapCredential()},
+		"short credential": {id: id, credential: bytes.Repeat([]byte{0x5a}, pairingBootstrapCredentialLen-1)},
+		"long credential":  {id: id, credential: bytes.Repeat([]byte{0x5a}, pairingBootstrapCredentialLen+1)},
+		"zero credential":  {id: id, credential: make([]byte, pairingBootstrapCredentialLen)},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			if _, err := HashPairingBootstrapCredential(test.id, test.credential); !errors.Is(
+				err, ErrInvalidPairingBootstrapCredential,
+			) {
+				t.Fatalf("HashPairingBootstrapCredential() error = %v", err)
+			}
+		})
 	}
 }
 
@@ -132,6 +186,7 @@ func TestPairingAttemptValidForCreateFailsClosed(t *testing.T) {
 		"changed update time": func(attempt *PairingAttempt) {
 			attempt.updatedAt = attempt.updatedAt.Add(time.Second)
 		},
+		"locked attempt": func(attempt *PairingAttempt) { attempt.lockedAt = attempt.createdAt },
 		"zero bootstrap hash": func(attempt *PairingAttempt) {
 			attempt.bootstrapCredentialHash = [pairingAttemptBootstrapHashLen]byte{}
 		},
@@ -154,11 +209,20 @@ func validPairingAttemptSpec(t *testing.T) PairingAttemptSpec {
 		t.Fatalf("ParseX25519PublicKey() error = %v", err)
 	}
 	createdAt := time.Date(2026, time.July, 31, 16, 0, 0, 0, time.FixedZone("test", 3*60*60))
+	id := strings.Repeat("a", 32)
+	hash, err := HashPairingBootstrapCredential(id, validPairingBootstrapCredential())
+	if err != nil {
+		t.Fatalf("HashPairingBootstrapCredential(fixture) error = %v", err)
+	}
 	return PairingAttemptSpec{
-		ID: strings.Repeat("a", 32), AgentPublicKey: publicKey,
+		ID: id, AgentPublicKey: publicKey,
 		AgentDisplayName: "  M3 agent  ", AgentVersion: "  0.1.0  ",
 		ProtocolVersion: pairingAttemptProtocolVersion, RelayRegion: "eu-test-1",
-		BootstrapCredentialHash: bytes.Repeat([]byte{0x24}, pairingAttemptBootstrapHashLen),
+		BootstrapCredentialHash: hash[:],
 		CreatedAt:               createdAt, ExpiresAt: createdAt.Add(maxPairingAttemptLifetime),
 	}
+}
+
+func validPairingBootstrapCredential() []byte {
+	return bytes.Repeat([]byte{0x5a}, pairingBootstrapCredentialLen)
 }

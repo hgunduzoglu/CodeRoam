@@ -2,6 +2,7 @@ package session
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"strings"
@@ -14,16 +15,24 @@ import (
 )
 
 const (
-	pairingAttemptProtocolVersion  = 1
-	pairingAttemptBootstrapHashLen = 32
-	maxPairingAttemptLifetime      = 5 * time.Minute
-	maxPairingAttemptFailures      = 8
-	maxPairingAgentNameRunes       = 128
-	maxPairingAgentNameBytes       = maxPairingAgentNameRunes * utf8.UTFMax
-	maxPairingAgentVersionBytes    = 64
+	pairingAttemptProtocolVersion    = 1
+	pairingAttemptEncodedIDLen       = 32
+	pairingBootstrapCredentialLen    = 32
+	pairingAttemptBootstrapHashLen   = sha256.Size
+	pairingBootstrapCredentialDomain = "coderoam:m3:pairing-bootstrap-credential:v1"
+	pairingBootstrapHashInputLen     = len(pairingBootstrapCredentialDomain) + 1 +
+		pairingAttemptEncodedIDLen + 1 + pairingBootstrapCredentialLen
+	maxPairingAttemptLifetime   = 5 * time.Minute
+	maxPairingAttemptFailures   = 8
+	maxPairingAgentNameRunes    = 128
+	maxPairingAgentNameBytes    = maxPairingAgentNameRunes * utf8.UTFMax
+	maxPairingAgentVersionBytes = 64
 )
 
-var ErrInvalidPairingAttempt = errors.New("invalid pairing attempt")
+var (
+	ErrInvalidPairingAttempt             = errors.New("invalid pairing attempt")
+	ErrInvalidPairingBootstrapCredential = errors.New("invalid pairing bootstrap credential")
+)
 
 type pairingAttemptState string
 
@@ -57,6 +66,26 @@ type PairingAttempt struct {
 	createdAt               time.Time
 	expiresAt               time.Time
 	updatedAt               time.Time
+	lockedAt                time.Time
+}
+
+// HashPairingBootstrapCredential binds one exact 256-bit credential to its canonical
+// pairing attempt. Callers retain ownership of the raw credential and must never persist it.
+func HashPairingBootstrapCredential(encodedID string, credential []byte) ([sha256.Size]byte, error) {
+	attemptID, err := ids.Parse(encodedID)
+	if err != nil || len(credential) != pairingBootstrapCredentialLen || allZero(credential) {
+		return [sha256.Size]byte{}, ErrInvalidPairingBootstrapCredential
+	}
+
+	var input [pairingBootstrapHashInputLen]byte
+	offset := copy(input[:], pairingBootstrapCredentialDomain)
+	offset++
+	offset += copy(input[offset:], attemptID.String())
+	offset++
+	copy(input[offset:], credential)
+	defer clear(input[:])
+
+	return sha256.Sum256(input[:]), nil
 }
 
 // NewPairingAttempt validates and normalizes one fresh, unclaimed pairing attempt.
@@ -112,7 +141,7 @@ func NewPairingAttempt(spec PairingAttemptSpec) (PairingAttempt, error) {
 
 func (attempt PairingAttempt) validForCreate() bool {
 	if attempt.state != pairingAttemptStateOpen || attempt.failedAttemptCount != 0 ||
-		!attempt.updatedAt.Equal(attempt.createdAt) {
+		!attempt.updatedAt.Equal(attempt.createdAt) || !attempt.lockedAt.IsZero() {
 		return false
 	}
 	hash := make([]byte, pairingAttemptBootstrapHashLen)

@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"time"
@@ -156,7 +157,70 @@ func (repository *Repository) LockOpenPairingAttempt(
 	}
 	attempt.failedAttemptCount = failedAttemptCount
 	attempt.updatedAt = updatedAt.UTC()
+	attempt.lockedAt = lockedAt
 	return attempt, nil
+}
+
+// authenticateOpenPairingAttempt locks one usable open attempt, compares the supplied
+// credential in constant time, and records one bounded failure as a normal transaction
+// outcome. The transaction-owning service commits a rejection before exposing it.
+func (repository *Repository) authenticateOpenPairingAttempt(
+	ctx context.Context,
+	tx pgx.Tx,
+	encodedID string,
+	credential []byte,
+) (PairingAttempt, bool, error) {
+	attempt, err := repository.LockOpenPairingAttempt(ctx, tx, encodedID)
+	if err != nil {
+		if errors.Is(err, ErrInvalidPairingAttempt) {
+			return PairingAttempt{}, false, ErrPairingAttemptUnavailable
+		}
+		return PairingAttempt{}, false, err
+	}
+
+	candidateHash, credentialErr := HashPairingBootstrapCredential(attempt.id.String(), credential)
+	matched := subtle.ConstantTimeCompare(candidateHash[:], attempt.bootstrapCredentialHash[:])
+	clear(candidateHash[:])
+	if err := ctx.Err(); err != nil {
+		return PairingAttempt{}, false, err
+	}
+
+	authenticatedAt := repository.now().UTC()
+	if authenticatedAt.IsZero() || authenticatedAt.Before(attempt.lockedAt) {
+		return PairingAttempt{}, false, ErrPairingAttemptPersistenceUnavailable
+	}
+	if !attempt.expiresAt.After(authenticatedAt) {
+		return PairingAttempt{}, false, ErrPairingAttemptUnavailable
+	}
+	attempt.lockedAt = authenticatedAt
+	if credentialErr == nil && matched == 1 {
+		return attempt, true, nil
+	}
+
+	failedAt := authenticatedAt.Truncate(time.Microsecond)
+	if failedAt.Before(attempt.updatedAt) || !attempt.expiresAt.After(failedAt) {
+		return PairingAttempt{}, false, ErrPairingAttemptUnavailable
+	}
+	operationCtx, cancelOperation := context.WithTimeout(ctx, repository.operationMax)
+	defer cancelOperation()
+
+	result, err := tx.Exec(operationCtx, `
+		UPDATE session.pairing_attempts
+		SET failed_attempt_count = failed_attempt_count + 1, updated_at = $1
+		WHERE id = $2
+		  AND state = 'open'
+		  AND failed_attempt_count = $3
+		  AND failed_attempt_count < $4
+		  AND created_at <= $1 AND updated_at <= $1 AND expires_at > $1`,
+		failedAt, attempt.id.String(), attempt.failedAttemptCount, maxPairingAttemptFailures,
+	)
+	if err != nil {
+		return PairingAttempt{}, false, pairingAttemptPersistenceError("record credential failure", err)
+	}
+	if result.RowsAffected() != 1 {
+		return PairingAttempt{}, false, ErrPairingAttemptUnavailable
+	}
+	return PairingAttempt{}, false, nil
 }
 
 func pairingAttemptPersistenceError(operation string, err error) error {

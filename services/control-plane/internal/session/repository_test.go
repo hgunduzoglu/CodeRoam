@@ -161,10 +161,40 @@ func TestPairingAttemptRepositoryRejectsInvalidBoundaries(t *testing.T) {
 	); !errors.Is(err, ErrPairingAttemptPersistenceUnavailable) {
 		t.Fatalf("LockOpenPairingAttempt(nil transaction) error = %v", err)
 	}
+	if _, _, err := nilRepository.authenticateOpenPairingAttempt(
+		context.Background(), nil, attempt.id.String(), validPairingBootstrapCredential(),
+	); !errors.Is(err, ErrPairingAttemptPersistenceUnavailable) {
+		t.Fatalf("nil Repository AuthenticateOpenPairingAttempt() error = %v", err)
+	}
+	if _, _, err := repository.authenticateOpenPairingAttempt(
+		nil, nil, attempt.id.String(), validPairingBootstrapCredential(),
+	); !errors.Is(err, ErrPairingAttemptPersistenceUnavailable) {
+		t.Fatalf("AuthenticateOpenPairingAttempt(nil context) error = %v", err)
+	}
+	if _, _, err := repository.authenticateOpenPairingAttempt(
+		canceledCtx, nil, attempt.id.String(), validPairingBootstrapCredential(),
+	); !errors.Is(err, context.Canceled) {
+		t.Fatalf("AuthenticateOpenPairingAttempt(canceled context) error = %v", err)
+	}
+	if _, _, err := repository.authenticateOpenPairingAttempt(
+		context.Background(), nil, "invalid", validPairingBootstrapCredential(),
+	); !errors.Is(err, ErrPairingAttemptUnavailable) {
+		t.Fatalf("AuthenticateOpenPairingAttempt(invalid id) error = %v", err)
+	}
+	if _, _, err := repository.authenticateOpenPairingAttempt(
+		context.Background(), nil, attempt.id.String(), validPairingBootstrapCredential(),
+	); !errors.Is(err, ErrPairingAttemptPersistenceUnavailable) {
+		t.Fatalf("AuthenticateOpenPairingAttempt(nil transaction) error = %v", err)
+	}
 	repository.operationMax = 0
 	if err := repository.CreatePairingAttempt(context.Background(), nil, attempt); !errors.Is(
 		err, ErrPairingAttemptPersistenceUnavailable,
 	) {
 		t.Fatalf("CreatePairingAttempt(invalid operation maximum) error = %v", err)
+	}
+	if _, _, err := repository.authenticateOpenPairingAttempt(
+		context.Background(), nil, attempt.id.String(), validPairingBootstrapCredential(),
+	); !errors.Is(err, ErrPairingAttemptPersistenceUnavailable) {
+		t.Fatalf("AuthenticateOpenPairingAttempt(invalid operation maximum) error = %v", err)
 	}
 }

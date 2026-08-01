@@ -53,4 +53,17 @@ instead of accepting fingerprint text.
 `LockOpenPairingAttempt` samples the repository clock before and after `FOR UPDATE`, and returns the
 same generic unavailable result for missing, future, expired, exhausted, non-open, noncanonical, or
 partially populated rows. The caller retains the row lock until its transaction commits or rolls
-back. Credential authentication and claim/confirmation mutations remain later state-machine slices.
+back.
+
+`HashPairingBootstrapCredential` hashes an exact 256-bit credential with a versioned domain and the
+canonical pairing ID, so a stored digest cannot be substituted between attempts. The raw credential
+remains caller-owned and is never persisted. `authenticateOpenPairingAttempt` locks and restores the
+open attempt, compares the derived digest in constant time, and rechecks expiry after hashing. The
+helper is package-private and reports a wrong, zero, or malformed credential as a normal rejected
+outcome after incrementing the bounded failure count. The package-private pairing-attempt service
+owns the transaction, commits that rejection through a short cancellation-independent context, and
+only then returns the same unavailable result used by missing, expired, and exhausted attempts. An
+ambiguous commit grants no authentication and returns a distinct reconciliation error. A successful
+check is deliberately not exposed as an authorization capability; the confirmation slice must keep
+verification and its typed mutation under this same row lock and transaction. Clock rollback,
+cancellation before mutation, exhausted attempts, and expiry fail closed.
