@@ -10,17 +10,22 @@ import (
 )
 
 type pairingAttemptStoreStub struct {
-	matched    bool
-	err        error
-	after      func()
-	calls      int
-	tx         pgx.Tx
-	id         string
-	claimErr   error
-	claimCalls int
-	claimTx    pgx.Tx
-	claimID    string
-	claim      PairingAttemptClaim
+	matched      bool
+	err          error
+	after        func()
+	calls        int
+	tx           pgx.Tx
+	id           string
+	claimErr     error
+	claimCalls   int
+	claimTx      pgx.Tx
+	claimID      string
+	claim        PairingAttemptClaim
+	confirmErr   error
+	confirmCalls int
+	confirmTx    pgx.Tx
+	confirmID    string
+	confirmation MobilePairingConfirmation
 }
 
 func (stub *pairingAttemptStoreStub) authenticateOpenPairingAttempt(
@@ -49,6 +54,19 @@ func (stub *pairingAttemptStoreStub) claimOpenPairingAttempt(
 	stub.claimID = id
 	stub.claim = claim
 	return stub.claimErr
+}
+
+func (stub *pairingAttemptStoreStub) confirmMobilePairingAttempt(
+	_ context.Context,
+	tx pgx.Tx,
+	id string,
+	confirmation MobilePairingConfirmation,
+) error {
+	stub.confirmCalls++
+	stub.confirmTx = tx
+	stub.confirmID = id
+	stub.confirmation = confirmation
+	return stub.confirmErr
 }
 
 func TestPairingAttemptServiceCommitsAuthenticationOutcomes(t *testing.T) {
@@ -258,6 +276,99 @@ func TestPairingAttemptServiceClaimRejectsInvalidBoundaryBeforePersistence(t *te
 	}
 	if starter.calls != 0 || store.claimCalls != 0 || tx.commitCalls != 0 {
 		t.Fatal("invalid claim reached persistence")
+	}
+}
+
+func TestPairingAttemptServiceConfirmsMobileInOneTransaction(t *testing.T) {
+	tx := &sessionServiceTxStub{}
+	starter := &sessionServiceStarterStub{tx: tx}
+	store := &pairingAttemptStoreStub{}
+	service := newPairingAttemptServiceForTest(t, starter, store)
+	confirmation, err := NewMobilePairingConfirmation(validMobilePairingConfirmationSpec(t))
+	if err != nil {
+		t.Fatalf("NewMobilePairingConfirmation() error = %v", err)
+	}
+
+	if err := service.confirmMobile(
+		context.Background(), serviceTestSessionID, confirmation,
+	); err != nil {
+		t.Fatalf("confirmMobile() error = %v", err)
+	}
+	if starter.calls != 1 || store.confirmCalls != 1 || store.confirmTx != tx ||
+		store.confirmID != serviceTestSessionID || !store.confirmation.valid() ||
+		tx.commitCalls != 1 || tx.rollbackCalls != 1 {
+		t.Fatalf(
+			"calls = begin %d, confirm %d, commit %d, rollback %d",
+			starter.calls, store.confirmCalls, tx.commitCalls, tx.rollbackCalls,
+		)
+	}
+}
+
+func TestPairingAttemptServiceMobileConfirmationFailsClosed(t *testing.T) {
+	databaseErr := errors.New("database unavailable")
+	commitErr := errors.New("commit acknowledgement lost")
+	tests := map[string]struct {
+		storeErr  error
+		commitErr error
+		want      error
+		commit    int
+	}{
+		"unavailable attempt": {storeErr: ErrPairingAttemptUnavailable, want: ErrPairingAttemptUnavailable},
+		"persistence failure": {storeErr: databaseErr, want: ErrPairingAttemptPersistenceUnavailable},
+		"ambiguous commit": {
+			commitErr: commitErr, want: ErrPairingAttemptCommitOutcomeUnknown, commit: 1,
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			tx := &sessionServiceTxStub{commitErr: test.commitErr}
+			starter := &sessionServiceStarterStub{tx: tx}
+			store := &pairingAttemptStoreStub{confirmErr: test.storeErr}
+			service := newPairingAttemptServiceForTest(t, starter, store)
+			confirmation, err := NewMobilePairingConfirmation(validMobilePairingConfirmationSpec(t))
+			if err != nil {
+				t.Fatalf("NewMobilePairingConfirmation() error = %v", err)
+			}
+
+			err = service.confirmMobile(context.Background(), serviceTestSessionID, confirmation)
+			if !errors.Is(err, test.want) {
+				t.Fatalf("confirmMobile() error = %v, want %v", err, test.want)
+			}
+			if test.commitErr != nil && !errors.Is(err, test.commitErr) {
+				t.Fatalf("confirmMobile() error = %v, want commit cause", err)
+			}
+			if tx.commitCalls != test.commit || tx.rollbackCalls != 1 {
+				t.Fatalf("transaction calls = commit %d, rollback %d", tx.commitCalls, tx.rollbackCalls)
+			}
+		})
+	}
+}
+
+func TestPairingAttemptServiceMobileConfirmationRejectsInvalidBoundary(t *testing.T) {
+	tx := &sessionServiceTxStub{}
+	starter := &sessionServiceStarterStub{tx: tx}
+	store := &pairingAttemptStoreStub{}
+	service := newPairingAttemptServiceForTest(t, starter, store)
+	valid, err := NewMobilePairingConfirmation(validMobilePairingConfirmationSpec(t))
+	if err != nil {
+		t.Fatalf("NewMobilePairingConfirmation() error = %v", err)
+	}
+	invalid := valid
+	invalid.channelBinding = [pairingChannelBindingLen]byte{}
+
+	if err := service.confirmMobile(
+		context.Background(), serviceTestSessionID, invalid,
+	); !errors.Is(err, ErrInvalidPairingAttemptConfirmation) {
+		t.Fatalf("confirmMobile(invalid) error = %v", err)
+	}
+	var nilService *pairingAttemptService
+	if err := nilService.confirmMobile(
+		context.Background(), serviceTestSessionID, valid,
+	); !errors.Is(err, ErrPairingAttemptPersistenceUnavailable) {
+		t.Fatalf("nil service confirmMobile() error = %v", err)
+	}
+	if starter.calls != 0 || store.confirmCalls != 0 || tx.commitCalls != 0 {
+		t.Fatal("invalid mobile confirmation reached persistence")
 	}
 }
 

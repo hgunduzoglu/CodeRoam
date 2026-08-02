@@ -19,6 +19,7 @@ type pairingAttemptStore interface {
 		[]byte,
 	) (PairingAttempt, bool, error)
 	claimOpenPairingAttempt(context.Context, pgx.Tx, string, PairingAttemptClaim) error
+	confirmMobilePairingAttempt(context.Context, pgx.Tx, string, MobilePairingConfirmation) error
 }
 
 type pairingAttemptService struct {
@@ -158,6 +159,63 @@ func (service *pairingAttemptService) claim(
 			return claimErr
 		}
 		return pairingAttemptServiceError("claim", claimErr)
+	}
+	if commitErr := tx.Commit(operationCtx); commitErr != nil {
+		return fmt.Errorf("%w: %w", ErrPairingAttemptCommitOutcomeUnknown, commitErr)
+	}
+	return nil
+}
+
+// confirmMobile records one authenticated mobile handshake observation inside a
+// bounded transaction. A commit error must be reconciled with the exact same input.
+func (service *pairingAttemptService) confirmMobile(
+	ctx context.Context,
+	encodedID string,
+	confirmation MobilePairingConfirmation,
+) (err error) {
+	if ctx == nil || service == nil || service.transactions == nil || service.attempts == nil ||
+		service.operationMax <= 0 {
+		return ErrPairingAttemptPersistenceUnavailable
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !confirmation.valid() {
+		return ErrInvalidPairingAttemptConfirmation
+	}
+
+	operationCtx, cancelOperation := context.WithTimeout(ctx, service.operationMax)
+	defer cancelOperation()
+	tx, beginErr := service.transactions.Begin(operationCtx)
+	if tx == nil {
+		return pairingAttemptServiceError("begin mobile confirmation", beginErr)
+	}
+	defer func() {
+		rollbackCtx, cancelRollback := context.WithTimeout(context.WithoutCancel(ctx), serviceCleanupTimeout)
+		defer cancelRollback()
+		rollbackErr := tx.Rollback(rollbackCtx)
+		if rollbackErr == nil || errors.Is(rollbackErr, pgx.ErrTxClosed) {
+			return
+		}
+		rollbackErr = pairingAttemptServiceError("rollback mobile confirmation", rollbackErr)
+		if err == nil {
+			err = rollbackErr
+			return
+		}
+		err = errors.Join(err, rollbackErr)
+	}()
+	if beginErr != nil {
+		return pairingAttemptServiceError("begin mobile confirmation", beginErr)
+	}
+
+	if confirmationErr := service.attempts.confirmMobilePairingAttempt(
+		operationCtx, tx, encodedID, confirmation,
+	); confirmationErr != nil {
+		if errors.Is(confirmationErr, ErrPairingAttemptUnavailable) ||
+			errors.Is(confirmationErr, ErrInvalidPairingAttemptConfirmation) {
+			return confirmationErr
+		}
+		return pairingAttemptServiceError("confirm mobile", confirmationErr)
 	}
 	if commitErr := tx.Commit(operationCtx); commitErr != nil {
 		return fmt.Errorf("%w: %w", ErrPairingAttemptCommitOutcomeUnknown, commitErr)

@@ -37,8 +37,9 @@ var (
 type pairingAttemptState string
 
 const (
-	pairingAttemptStateOpen    pairingAttemptState = "open"
-	pairingAttemptStateClaimed pairingAttemptState = "claimed"
+	pairingAttemptStateOpen       pairingAttemptState = "open"
+	pairingAttemptStateClaimed    pairingAttemptState = "claimed"
+	pairingAttemptStateConfirming pairingAttemptState = "confirming"
 )
 
 // PairingAttemptSpec contains public candidate metadata and an already domain-separated

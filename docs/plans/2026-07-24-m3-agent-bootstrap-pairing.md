@@ -298,6 +298,7 @@ compatibility seams rather than delivered as one large file replacement.
   persistence.
 - [x] Implement domain-separated bootstrap-credential authentication and bounded failure accounting.
 - [x] Implement the owner-bound mobile claim transition with exact idempotent retries.
+- [x] Implement the OIDC-authenticated mobile channel-binding confirmation transition.
 - [ ] Implement claim/confirmation state transitions.
 - [ ] Backfill and constrain device/workspace canonical fingerprints.
 - [ ] Implement device-owned and workspace-owned registration/listing boundaries.
@@ -394,6 +395,15 @@ compatibility seams rather than delivered as one large file replacement.
   A commit error remains an
   unknown outcome and must be reconciled with the same pairing ID and exact claim. Endpoint
   confirmations and consumption remain separate reviewed slices.
+- 2026-08-01: Accept a mobile confirmation only from the claimed OIDC owner and require its exact
+  protocol, nonzero 32-byte channel binding, observed agent public key, and submitted canonical
+  fingerprint to match the locked server candidate. Restore `claimed` and `confirming` rows through
+  one fail-closed canonical loader so exact claim retries remain stable after confirmation. The
+  first valid mobile confirmation moves the attempt to `confirming`; an exact retry preserves the
+  original timestamp, while a changed owner, peer identity, or binding shares the unavailable
+  result. Commit ambiguity is reconciled with the same pairing ID and confirmation. Agent
+  credential authentication, agent confirmation, consumption, and registration remain separate
+  reviewed slices.
 - 2026-07-24: Sign exact pairing ticket claims with Ed25519 and separate pairing purpose from future
   session purpose. Keep signing material only in the control plane and verification keys in the
   relay; keep ticket/replay state short-lived and metadata-only.

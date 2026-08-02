@@ -79,3 +79,15 @@ the first claim timestamp. Foreign owners, changed device metadata or keys, expi
 and corrupt stored candidates share the unavailable result. A commit error is an unknown outcome;
 callers must retry the same pairing ID and exact claim. No claim registers a device or agent, and
 endpoint confirmation plus atomic consumption remain later M3 transitions.
+
+`NewMobilePairingConfirmation` copies one nonzero 32-byte channel binding and recomputes the
+observed agent fingerprint from its public key, rejecting a mismatched submitted fingerprint. The
+session repository restores claimed or confirming attempts under `FOR UPDATE`, revalidates the
+owner, agent and device candidates, expiry, failure bound, state shape, optional confirmation
+timestamps, and any existing binding before mutation. A first valid OIDC-owner confirmation moves
+the attempt from `claimed` to `confirming`; an exact retry preserves the original binding and
+timestamp. Foreign owners, changed observed agents, changed bindings, expired rows, and corrupt
+durable state share the unavailable result. Claim reconciliation remains exact after the state
+change, and a commit acknowledgement failure is retried with the same pairing ID and confirmation.
+This transition grants no device or agent registration. Bootstrap-authenticated agent confirmation,
+matching two-sided completion, consumption, and atomic registration remain later M3 slices.

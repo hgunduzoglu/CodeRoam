@@ -219,6 +219,37 @@ func TestPairingAttemptRepositoryRejectsInvalidBoundaries(t *testing.T) {
 	); !errors.Is(err, ErrInvalidPairingAttemptClaim) {
 		t.Fatalf("claimOpenPairingAttempt(invalid claim) error = %v", err)
 	}
+	confirmation, err := NewMobilePairingConfirmation(validMobilePairingConfirmationSpec(t))
+	if err != nil {
+		t.Fatalf("NewMobilePairingConfirmation() error = %v", err)
+	}
+	if err := nilRepository.confirmMobilePairingAttempt(
+		context.Background(), nil, attempt.id.String(), confirmation,
+	); !errors.Is(err, ErrPairingAttemptPersistenceUnavailable) {
+		t.Fatalf("nil Repository confirmMobilePairingAttempt() error = %v", err)
+	}
+	if err := repository.confirmMobilePairingAttempt(
+		nil, nil, attempt.id.String(), confirmation,
+	); !errors.Is(err, ErrPairingAttemptPersistenceUnavailable) {
+		t.Fatalf("confirmMobilePairingAttempt(nil context) error = %v", err)
+	}
+	if err := repository.confirmMobilePairingAttempt(
+		canceledCtx, nil, attempt.id.String(), confirmation,
+	); !errors.Is(err, context.Canceled) {
+		t.Fatalf("confirmMobilePairingAttempt(canceled context) error = %v", err)
+	}
+	if err := repository.confirmMobilePairingAttempt(
+		context.Background(), nil, attempt.id.String(), confirmation,
+	); !errors.Is(err, ErrPairingAttemptPersistenceUnavailable) {
+		t.Fatalf("confirmMobilePairingAttempt(nil transaction) error = %v", err)
+	}
+	invalidConfirmation := confirmation
+	invalidConfirmation.channelBinding = [pairingChannelBindingLen]byte{}
+	if err := repository.confirmMobilePairingAttempt(
+		context.Background(), &sessionServiceTxStub{}, attempt.id.String(), invalidConfirmation,
+	); !errors.Is(err, ErrInvalidPairingAttemptConfirmation) {
+		t.Fatalf("confirmMobilePairingAttempt(invalid confirmation) error = %v", err)
+	}
 	repository.operationMax = 0
 	if err := repository.CreatePairingAttempt(context.Background(), nil, attempt); !errors.Is(
 		err, ErrPairingAttemptPersistenceUnavailable,
@@ -234,5 +265,10 @@ func TestPairingAttemptRepositoryRejectsInvalidBoundaries(t *testing.T) {
 		context.Background(), nil, attempt.id.String(), claim,
 	); !errors.Is(err, ErrPairingAttemptPersistenceUnavailable) {
 		t.Fatalf("claimOpenPairingAttempt(invalid operation maximum) error = %v", err)
+	}
+	if err := repository.confirmMobilePairingAttempt(
+		context.Background(), nil, attempt.id.String(), confirmation,
+	); !errors.Is(err, ErrPairingAttemptPersistenceUnavailable) {
+		t.Fatalf("confirmMobilePairingAttempt(invalid operation maximum) error = %v", err)
 	}
 }
