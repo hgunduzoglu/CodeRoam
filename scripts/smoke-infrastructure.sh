@@ -115,7 +115,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   POSTGRES_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' ./scripts/migrate.sh
   applied_migrations="$("${compose[@]}" exec -T postgres psql -U postgres -d coderoam -Atc \
     "$migration_ledger_query")"
-  expected_migrations='auth:1,auth:2,device:1,integration:1,outbox:1,preview:1,runbook:1,session:1,session:2,workspace:1'
+  expected_migrations='auth:1,auth:2,device:1,device:2,integration:1,outbox:1,preview:1,runbook:1,session:1,session:2,workspace:1,workspace:2'
   if [[ "$applied_migrations" != "$expected_migrations" ]]; then
     echo "unexpected migration ledger: $applied_migrations" >&2
     exit 1
@@ -133,7 +133,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   (cd services/control-plane && \
     POSTGRES_TEST_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' \
       go test -count=1 \
-        -run '^(TestAuthorizationIntegration|TestAuthorizationLockIntegration|TestAuthorizationTimeoutIntegration|TestRepositoryIntegration)$' \
+        -run '^(TestAuthorizationIntegration|TestAuthorizationLockIntegration|TestAuthorizationTimeoutIntegration|TestDeviceFingerprintMigrationIntegration|TestRepositoryIntegration)$' \
         ./internal/device)
   (cd services/control-plane && \
     POSTGRES_TEST_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' \
@@ -146,7 +146,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   (cd services/control-plane && \
     POSTGRES_TEST_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' \
       go test -count=1 \
-        -run '^(TestRepositoryAgentRevocationIntegration|TestRepositoryAuthorizeAgentIntegration|TestRepositoryAuthorizeAgentLockIntegration|TestRepositoryAuthorizeAgentTimeoutIntegration|TestRepositoryAuthorizeProjectIntegration|TestRepositoryAuthorizeProjectLockIntegration|TestRepositoryListProjectsIntegration)$' \
+        -run '^(TestAgentFingerprintMigrationIntegration|TestRepositoryAgentRevocationIntegration|TestRepositoryAuthorizeAgentIntegration|TestRepositoryAuthorizeAgentLockIntegration|TestRepositoryAuthorizeAgentTimeoutIntegration|TestRepositoryAuthorizeProjectIntegration|TestRepositoryAuthorizeProjectLockIntegration|TestRepositoryListProjectsIntegration)$' \
         ./internal/workspace)
   (cd services/worker && \
     POSTGRES_TEST_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' \

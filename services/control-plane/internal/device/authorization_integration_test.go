@@ -69,11 +69,15 @@ func TestAuthorizationIntegration(t *testing.T) {
 
 	corruptDeviceID := newIntegrationDeviceID(t)
 	insertDeviceFixture(t, ctx, tx, corruptDeviceID, ownerID.String(), checkedAt.Add(-time.Hour))
-	if _, err := tx.Exec(ctx, `UPDATE device.devices SET static_public_key = $1 WHERE id = $2`, []byte{0x42}, corruptDeviceID); err != nil {
-		t.Fatalf("corrupt stored device public key: %v", err)
+	if _, err := tx.Exec(ctx, `SAVEPOINT reject_corrupt_device_key`); err != nil {
+		t.Fatalf("create corrupt-device savepoint: %v", err)
 	}
-	if err := repository.Authorize(ctx, tx, owner, corruptDeviceID); !errors.Is(err, ErrDeviceAccessDenied) {
-		t.Fatalf("Authorize(corrupt key) error = %v, want ErrDeviceAccessDenied", err)
+	_, err = tx.Exec(ctx, `UPDATE device.devices SET static_public_key = $1 WHERE id = $2`, []byte{0x42}, corruptDeviceID)
+	assertDeviceFingerprintDatabaseError(
+		t, err, "devices_static_public_key_length", "devices_public_key_fingerprint_matches_key",
+	)
+	if _, err := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT reject_corrupt_device_key`); err != nil {
+		t.Fatalf("recover from rejected corrupt device key: %v", err)
 	}
 
 	if err := repository.Revoke(ctx, owner, activeDeviceID); err != nil {
@@ -215,6 +219,7 @@ func insertCommittedAuthorizationFixture(
 ) string {
 	t.Helper()
 	deviceID := newIntegrationDeviceID(t)
+	publicKey := bytes.Repeat([]byte{keyByte}, 32)
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO device.devices (
 			id, user_id, name, platform, static_public_key, public_key_fingerprint, paired_at
@@ -223,8 +228,8 @@ func insertCommittedAuthorizationFixture(
 		ownerID,
 		"Authorization integration device",
 		"android",
-		bytes.Repeat([]byte{keyByte}, 32),
-		"fixture:"+deviceID,
+		publicKey,
+		rawFingerprint(publicKey),
 		pairedAt,
 	); err != nil {
 		t.Fatalf("insert authorization fixture: %v", err)

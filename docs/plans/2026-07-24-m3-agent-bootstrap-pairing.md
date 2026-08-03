@@ -301,7 +301,7 @@ compatibility seams rather than delivered as one large file replacement.
 - [x] Implement the OIDC-authenticated mobile channel-binding confirmation transition.
 - [x] Implement the bootstrap-authenticated agent channel-binding confirmation transition.
 - [x] Implement claim/confirmation state transitions.
-- [ ] Backfill and constrain device/workspace canonical fingerprints.
+- [x] Backfill and constrain device/workspace canonical fingerprints.
 - [ ] Implement device-owned and workspace-owned registration/listing boundaries.
 - [ ] Implement signed agent artifact generation and verification documentation.
 - [ ] Implement bounded agent bootstrap and outbound pairing lifecycle.
@@ -415,6 +415,13 @@ compatibility seams rather than delivered as one large file replacement.
   pending, but cannot mutate or exhaust an attempt after its agent binding is durably stored. A
   successful two-sided confirmation remains non-authoritative until the later atomic consumption
   and device/workspace registration slice.
+- 2026-08-03: Before exposing registration, lock each module-owned identity table and fail the
+  migration if any legacy X25519 public key is malformed, noncanonical, low-order, or duplicated.
+  Reject RFC 7748 high-bit and field-reduction aliases rather than allowing two durable identities
+  for the same DH point. Backfill the canonical SHA-256 fingerprint from each validated key, then
+  constrain future key/fingerprint writes to remain equal. Keep device and workspace migrations
+  independent and transactional so a failed preflight or constraint installation records no
+  migration ledger entry; atomic pairing consumption and registration remain the next slice.
 - 2026-07-24: Sign exact pairing ticket claims with Ed25519 and separate pairing purpose from future
   session purpose. Keep signing material only in the control plane and verification keys in the
   relay; keep ticket/replay state short-lived and metadata-only.

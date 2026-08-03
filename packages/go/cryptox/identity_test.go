@@ -2,6 +2,7 @@ package cryptox
 
 import (
 	"bytes"
+	"encoding/hex"
 	"errors"
 	"reflect"
 	"strconv"
@@ -42,6 +43,38 @@ func TestParseX25519PublicKeyRejectsInvalidLengths(t *testing.T) {
 				t.Fatalf("ParseX25519PublicKey() error = %v, want %v", err, ErrInvalidPublicKey)
 			}
 		})
+	}
+}
+
+func TestParseX25519PublicKeyRejectsNoncanonicalAndLowOrderInputs(t *testing.T) {
+	tests := map[string]string{
+		"zero":                  "0000000000000000000000000000000000000000000000000000000000000000",
+		"one":                   "0100000000000000000000000000000000000000000000000000000000000000",
+		"low order point one":   "e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800",
+		"low order point two":   "5f9c95bca3508c24b1d0b1559c83ef5b04445cc4581c8e86d8224eddd09f1157",
+		"field prime minus one": "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+		"field prime":           "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+		"field prime plus one":  "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+		"masked high bit alias": "0900000000000000000000000000000000000000000000000000000000000080",
+	}
+
+	for name, encodedHex := range tests {
+		t.Run(name, func(t *testing.T) {
+			encoded, err := hex.DecodeString(encodedHex)
+			if err != nil {
+				t.Fatalf("decode test key: %v", err)
+			}
+			if _, err := ParseX25519PublicKey(encoded); !errors.Is(err, ErrInvalidPublicKey) {
+				t.Fatalf("ParseX25519PublicKey() error = %v, want %v", err, ErrInvalidPublicKey)
+			}
+		})
+	}
+}
+
+func TestX25519PublicKeyBytesRevalidatesInitializedEncoding(t *testing.T) {
+	key := X25519PublicKey{initialized: true}
+	if _, err := key.Bytes(); !errors.Is(err, ErrInvalidPublicKey) {
+		t.Fatalf("Bytes() error = %v, want %v", err, ErrInvalidPublicKey)
 	}
 }
 

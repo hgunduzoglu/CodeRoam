@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -62,6 +63,8 @@ func TestRuntimeHandlerIntegration(t *testing.T) {
 		}
 	})
 	publicKey := bytes.Repeat([]byte{0x42}, 32)
+	publicKeyDigest := sha256.Sum256(publicKey)
+	publicKeyFingerprint := fmt.Sprintf("x25519-sha256:%x", publicKeyDigest)
 	fixtures := []struct {
 		statement string
 		arguments []any
@@ -71,9 +74,9 @@ func TestRuntimeHandlerIntegration(t *testing.T) {
 		{"INSERT INTO auth.oidc_identities (issuer, subject, user_id, linked_at) VALUES ($1, $2, $3, $4)",
 			[]any{issuer, subject, userID, now.Add(-4 * time.Minute)}},
 		{"INSERT INTO device.devices (id, user_id, name, platform, static_public_key, public_key_fingerprint, paired_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-			[]any{deviceID, userID, "Runtime phone", "ios", publicKey, "device-" + deviceID, now.Add(-3 * time.Minute)}},
+			[]any{deviceID, userID, "Runtime phone", "ios", publicKey, publicKeyFingerprint, now.Add(-3 * time.Minute)}},
 		{"INSERT INTO workspace.agents (id, user_id, name, static_public_key, public_key_fingerprint, version, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-			[]any{agentID, userID, "Runtime agent", publicKey, "agent-" + agentID, "1.0.0", now.Add(-3 * time.Minute)}},
+			[]any{agentID, userID, "Runtime agent", publicKey, publicKeyFingerprint, "1.0.0", now.Add(-3 * time.Minute)}},
 		{"INSERT INTO workspace.environments (id, user_id, agent_id, name, provider, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
 			[]any{environmentID, userID, agentID, "Runtime environment", "local", now.Add(-2 * time.Minute)}},
 		{"INSERT INTO workspace.projects (id, user_id, environment_id, name, root_path, created_at) VALUES ($1, $2, $3, $4, $5, $6)",

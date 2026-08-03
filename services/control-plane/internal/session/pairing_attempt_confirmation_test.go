@@ -32,10 +32,6 @@ func TestNewMobilePairingConfirmationCopiesBoundedPeerObservation(t *testing.T) 
 }
 
 func TestNewMobilePairingConfirmationRejectsInvalidBoundaries(t *testing.T) {
-	zeroKey, err := cryptox.ParseX25519PublicKey(make([]byte, 32))
-	if err != nil {
-		t.Fatalf("ParseX25519PublicKey(zero) error = %v", err)
-	}
 	tests := map[string]func(*MobilePairingConfirmationSpec){
 		"missing owner":        func(spec *MobilePairingConfirmationSpec) { spec.Actor = auth.Actor{} },
 		"unsupported protocol": func(spec *MobilePairingConfirmationSpec) { spec.ProtocolVersion++ },
@@ -51,9 +47,6 @@ func TestNewMobilePairingConfirmationRejectsInvalidBoundaries(t *testing.T) {
 		},
 		"missing observed key": func(spec *MobilePairingConfirmationSpec) {
 			spec.ObservedAgentPublicKey = cryptox.X25519PublicKey{}
-		},
-		"zero observed key": func(spec *MobilePairingConfirmationSpec) {
-			spec.ObservedAgentPublicKey = zeroKey
 		},
 		"malformed observed fingerprint": func(spec *MobilePairingConfirmationSpec) {
 			spec.ObservedAgentKeyFingerprint = "invalid"
@@ -160,10 +153,6 @@ func TestNewAgentPairingConfirmationCopiesBoundedPeerObservation(t *testing.T) {
 }
 
 func TestNewAgentPairingConfirmationRejectsInvalidBoundaries(t *testing.T) {
-	zeroKey, err := cryptox.ParseX25519PublicKey(make([]byte, 32))
-	if err != nil {
-		t.Fatalf("ParseX25519PublicKey(zero) error = %v", err)
-	}
 	tests := map[string]func(*AgentPairingConfirmationSpec){
 		"unsupported protocol": func(spec *AgentPairingConfirmationSpec) { spec.ProtocolVersion++ },
 		"missing binding":      func(spec *AgentPairingConfirmationSpec) { spec.ChannelBinding = nil },
@@ -178,9 +167,6 @@ func TestNewAgentPairingConfirmationRejectsInvalidBoundaries(t *testing.T) {
 		},
 		"missing observed key": func(spec *AgentPairingConfirmationSpec) {
 			spec.ObservedDevicePublicKey = cryptox.X25519PublicKey{}
-		},
-		"zero observed key": func(spec *AgentPairingConfirmationSpec) {
-			spec.ObservedDevicePublicKey = zeroKey
 		},
 		"malformed observed fingerprint": func(spec *AgentPairingConfirmationSpec) {
 			spec.ObservedDeviceKeyFingerprint = "invalid"

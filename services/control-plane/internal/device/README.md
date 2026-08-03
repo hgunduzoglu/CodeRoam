@@ -25,8 +25,13 @@ an update or outbox failure before commit rolls back the state change. A commit 
 outcome and must be retried: the retry re-reads the row, returns success without a second event if the
 transaction committed, or performs the atomic revocation if it did not.
 
-Device creation/listing persistence and public-key fingerprint encoding remain separate slices.
-Fingerprint encoding must be fixed with the M3 pairing contract before registration is exposed.
-Transport-provided timestamps or user identifiers must not bypass the application service. Callers
-must bound and finish authorization transactions; returning from `Authorize` does not release its
-row lock.
+M3 migration version 2 takes an exclusive table lock and rejects malformed, noncanonical,
+low-order, or duplicate legacy X25519 public keys before changing data. This prevents RFC 7748
+input aliases from creating multiple durable identities for the same DH point. It backfills the
+canonical fingerprint from each validated key and constrains all later key/fingerprint writes to
+the same representation. A failed preflight or constraint installation rolls back both the
+backfill and migration ledger entry. Device creation/listing persistence remains a separate slice
+and must derive the fingerprint again at its application boundary instead of trusting submitted
+text. Transport-provided timestamps or user identifiers must not bypass the application service.
+Callers must bound and finish authorization transactions; returning from `Authorize` does not
+release its row lock.

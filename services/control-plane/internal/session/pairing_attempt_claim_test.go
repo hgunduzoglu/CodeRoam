@@ -35,17 +35,10 @@ func TestNewPairingAttemptClaimNormalizesOwnerBoundCandidate(t *testing.T) {
 }
 
 func TestNewPairingAttemptClaimRejectsInvalidBoundaries(t *testing.T) {
-	zeroKey, err := cryptox.ParseX25519PublicKey(make([]byte, 32))
-	if err != nil {
-		t.Fatalf("ParseX25519PublicKey(zero) error = %v", err)
-	}
 	tests := map[string]func(*PairingAttemptClaimSpec){
 		"missing owner": func(spec *PairingAttemptClaimSpec) { spec.Actor = auth.Actor{} },
 		"missing expected agent key": func(spec *PairingAttemptClaimSpec) {
 			spec.ExpectedAgentPublicKey = cryptox.X25519PublicKey{}
-		},
-		"zero expected agent key": func(spec *PairingAttemptClaimSpec) {
-			spec.ExpectedAgentPublicKey = zeroKey
 		},
 		"unsupported protocol": func(spec *PairingAttemptClaimSpec) { spec.ProtocolVersion++ },
 		"invalid device id":    func(spec *PairingAttemptClaimSpec) { spec.DeviceID = "invalid" },
@@ -65,7 +58,6 @@ func TestNewPairingAttemptClaimRejectsInvalidBoundaries(t *testing.T) {
 		"missing public key": func(spec *PairingAttemptClaimSpec) {
 			spec.DevicePublicKey = cryptox.X25519PublicKey{}
 		},
-		"zero public key": func(spec *PairingAttemptClaimSpec) { spec.DevicePublicKey = zeroKey },
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {

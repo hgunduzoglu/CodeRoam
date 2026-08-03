@@ -90,16 +90,11 @@ func TestHashPairingBootstrapCredentialRejectsInvalidInput(t *testing.T) {
 }
 
 func TestNewPairingAttemptRejectsInvalidBoundaries(t *testing.T) {
-	zeroKey, err := cryptox.ParseX25519PublicKey(make([]byte, 32))
-	if err != nil {
-		t.Fatalf("ParseX25519PublicKey(zero) error = %v", err)
-	}
 	tests := map[string]func(*PairingAttemptSpec){
 		"invalid id": func(spec *PairingAttemptSpec) { spec.ID = "invalid" },
 		"missing public key": func(spec *PairingAttemptSpec) {
 			spec.AgentPublicKey = cryptox.X25519PublicKey{}
 		},
-		"zero public key":    func(spec *PairingAttemptSpec) { spec.AgentPublicKey = zeroKey },
 		"empty display name": func(spec *PairingAttemptSpec) { spec.AgentDisplayName = "  " },
 		"oversized display name": func(spec *PairingAttemptSpec) {
 			spec.AgentDisplayName = strings.Repeat("a", maxPairingAgentNameBytes+1)
