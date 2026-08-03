@@ -30,6 +30,22 @@ type MobilePairingConfirmation struct {
 	observedAgentFingerprint cryptox.X25519Fingerprint
 }
 
+// AgentPairingConfirmationSpec contains the bootstrap-authenticated agent's
+// bounded observation of one completed pairing handshake.
+type AgentPairingConfirmationSpec struct {
+	ProtocolVersion              int
+	ChannelBinding               []byte
+	ObservedDevicePublicKey      cryptox.X25519PublicKey
+	ObservedDeviceKeyFingerprint string
+}
+
+type AgentPairingConfirmation struct {
+	protocolVersion           int
+	channelBinding            [pairingChannelBindingLen]byte
+	observedDevicePublicKey   cryptox.X25519PublicKey
+	observedDeviceFingerprint cryptox.X25519Fingerprint
+}
+
 // NewMobilePairingConfirmation copies the channel binding and requires the
 // submitted peer fingerprint to match the observed agent public key.
 func NewMobilePairingConfirmation(
@@ -92,4 +108,60 @@ func (confirmation MobilePairingConfirmation) valid() bool {
 	}
 	fingerprint, err := cryptox.FingerprintX25519PublicKey(confirmation.observedAgentPublicKey)
 	return err == nil && fingerprint.Equal(confirmation.observedAgentFingerprint)
+}
+
+// NewAgentPairingConfirmation copies the channel binding and requires the
+// submitted peer fingerprint to match the observed mobile public key.
+func NewAgentPairingConfirmation(
+	spec AgentPairingConfirmationSpec,
+) (AgentPairingConfirmation, error) {
+	if spec.ProtocolVersion != pairingAttemptProtocolVersion {
+		return AgentPairingConfirmation{}, fmt.Errorf(
+			"%w: protocol version", ErrInvalidPairingAttemptConfirmation,
+		)
+	}
+	if len(spec.ChannelBinding) != pairingChannelBindingLen || allZero(spec.ChannelBinding) {
+		return AgentPairingConfirmation{}, fmt.Errorf(
+			"%w: channel binding", ErrInvalidPairingAttemptConfirmation,
+		)
+	}
+	publicKey, err := spec.ObservedDevicePublicKey.Bytes()
+	if err != nil || allZero(publicKey) {
+		return AgentPairingConfirmation{}, fmt.Errorf(
+			"%w: observed device public key", ErrInvalidPairingAttemptConfirmation,
+		)
+	}
+	fingerprint, err := cryptox.FingerprintX25519PublicKey(spec.ObservedDevicePublicKey)
+	if err != nil {
+		return AgentPairingConfirmation{}, fmt.Errorf(
+			"%w: observed device fingerprint", ErrInvalidPairingAttemptConfirmation,
+		)
+	}
+	encodedFingerprint, err := fingerprint.String()
+	if err != nil || encodedFingerprint != spec.ObservedDeviceKeyFingerprint {
+		return AgentPairingConfirmation{}, fmt.Errorf(
+			"%w: observed device fingerprint", ErrInvalidPairingAttemptConfirmation,
+		)
+	}
+
+	confirmation := AgentPairingConfirmation{
+		protocolVersion:           spec.ProtocolVersion,
+		observedDevicePublicKey:   spec.ObservedDevicePublicKey,
+		observedDeviceFingerprint: fingerprint,
+	}
+	copy(confirmation.channelBinding[:], spec.ChannelBinding)
+	return confirmation, nil
+}
+
+func (confirmation AgentPairingConfirmation) valid() bool {
+	if confirmation.protocolVersion != pairingAttemptProtocolVersion ||
+		allZero(confirmation.channelBinding[:]) {
+		return false
+	}
+	publicKey, err := confirmation.observedDevicePublicKey.Bytes()
+	if err != nil || allZero(publicKey) {
+		return false
+	}
+	fingerprint, err := cryptox.FingerprintX25519PublicKey(confirmation.observedDevicePublicKey)
+	return err == nil && fingerprint.Equal(confirmation.observedDeviceFingerprint)
 }

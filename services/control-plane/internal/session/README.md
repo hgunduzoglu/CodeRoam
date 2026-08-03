@@ -89,5 +89,19 @@ the attempt from `claimed` to `confirming`; an exact retry preserves the origina
 timestamp. Foreign owners, changed observed agents, changed bindings, expired rows, and corrupt
 durable state share the unavailable result. Claim reconciliation remains exact after the state
 change, and a commit acknowledgement failure is retried with the same pairing ID and confirmation.
-This transition grants no device or agent registration. Bootstrap-authenticated agent confirmation,
-matching two-sided completion, consumption, and atomic registration remain later M3 slices.
+This transition grants no device or agent registration. Attempt consumption and atomic
+device/workspace registration remain later M3 slices.
+
+`NewAgentPairingConfirmation` copies one nonzero 32-byte channel binding and recomputes the
+observed mobile fingerprint from its public key. The agent confirmation repository operation locks
+the claimed attempt before deriving and comparing the attempt-bound bootstrap-credential digest,
+then validates the exact protocol and claimed device identity. Until the first agent observation is
+stored, wrong or malformed credentials increment the bounded failure count and are committed before
+the service returns the generic unavailable result. Once an agent binding exists, rejected
+credentials cannot mutate or exhaust the confirmed attempt. A first valid agent observation moves
+a claimed attempt to `confirming`; either endpoint may arrive first, but the second binding must
+match exactly. Exact successful retries keep the original agent timestamp, expiry is checked after
+the row lock and credential hash, and commit acknowledgement loss is reconciled with the same
+pairing ID, credential, and confirmation. Even matching two-sided confirmation grants no ownership,
+registration, relay capability, or reusable credential; atomic consumption and device/workspace
+registration remain a separate M3 slice.

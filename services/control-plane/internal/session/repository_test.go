@@ -250,6 +250,40 @@ func TestPairingAttemptRepositoryRejectsInvalidBoundaries(t *testing.T) {
 	); !errors.Is(err, ErrInvalidPairingAttemptConfirmation) {
 		t.Fatalf("confirmMobilePairingAttempt(invalid confirmation) error = %v", err)
 	}
+	agentConfirmation, err := NewAgentPairingConfirmation(validAgentPairingConfirmationSpec(t))
+	if err != nil {
+		t.Fatalf("NewAgentPairingConfirmation() error = %v", err)
+	}
+	if _, err := nilRepository.confirmAgentPairingAttempt(
+		context.Background(), nil, attempt.id.String(),
+		validPairingBootstrapCredential(), agentConfirmation,
+	); !errors.Is(err, ErrPairingAttemptPersistenceUnavailable) {
+		t.Fatalf("nil Repository confirmAgentPairingAttempt() error = %v", err)
+	}
+	if _, err := repository.confirmAgentPairingAttempt(
+		nil, nil, attempt.id.String(), validPairingBootstrapCredential(), agentConfirmation,
+	); !errors.Is(err, ErrPairingAttemptPersistenceUnavailable) {
+		t.Fatalf("confirmAgentPairingAttempt(nil context) error = %v", err)
+	}
+	if _, err := repository.confirmAgentPairingAttempt(
+		canceledCtx, nil, attempt.id.String(), validPairingBootstrapCredential(), agentConfirmation,
+	); !errors.Is(err, context.Canceled) {
+		t.Fatalf("confirmAgentPairingAttempt(canceled context) error = %v", err)
+	}
+	if _, err := repository.confirmAgentPairingAttempt(
+		context.Background(), nil, attempt.id.String(),
+		validPairingBootstrapCredential(), agentConfirmation,
+	); !errors.Is(err, ErrPairingAttemptPersistenceUnavailable) {
+		t.Fatalf("confirmAgentPairingAttempt(nil transaction) error = %v", err)
+	}
+	invalidAgentConfirmation := agentConfirmation
+	invalidAgentConfirmation.channelBinding = [pairingChannelBindingLen]byte{}
+	if _, err := repository.confirmAgentPairingAttempt(
+		context.Background(), &sessionServiceTxStub{}, attempt.id.String(),
+		validPairingBootstrapCredential(), invalidAgentConfirmation,
+	); !errors.Is(err, ErrInvalidPairingAttemptConfirmation) {
+		t.Fatalf("confirmAgentPairingAttempt(invalid confirmation) error = %v", err)
+	}
 	repository.operationMax = 0
 	if err := repository.CreatePairingAttempt(context.Background(), nil, attempt); !errors.Is(
 		err, ErrPairingAttemptPersistenceUnavailable,
@@ -270,5 +304,11 @@ func TestPairingAttemptRepositoryRejectsInvalidBoundaries(t *testing.T) {
 		context.Background(), nil, attempt.id.String(), confirmation,
 	); !errors.Is(err, ErrPairingAttemptPersistenceUnavailable) {
 		t.Fatalf("confirmMobilePairingAttempt(invalid operation maximum) error = %v", err)
+	}
+	if _, err := repository.confirmAgentPairingAttempt(
+		context.Background(), nil, attempt.id.String(),
+		validPairingBootstrapCredential(), agentConfirmation,
+	); !errors.Is(err, ErrPairingAttemptPersistenceUnavailable) {
+		t.Fatalf("confirmAgentPairingAttempt(invalid operation maximum) error = %v", err)
 	}
 }

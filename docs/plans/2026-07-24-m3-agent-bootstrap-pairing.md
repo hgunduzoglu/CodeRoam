@@ -299,7 +299,8 @@ compatibility seams rather than delivered as one large file replacement.
 - [x] Implement domain-separated bootstrap-credential authentication and bounded failure accounting.
 - [x] Implement the owner-bound mobile claim transition with exact idempotent retries.
 - [x] Implement the OIDC-authenticated mobile channel-binding confirmation transition.
-- [ ] Implement claim/confirmation state transitions.
+- [x] Implement the bootstrap-authenticated agent channel-binding confirmation transition.
+- [x] Implement claim/confirmation state transitions.
 - [ ] Backfill and constrain device/workspace canonical fingerprints.
 - [ ] Implement device-owned and workspace-owned registration/listing boundaries.
 - [ ] Implement signed agent artifact generation and verification documentation.
@@ -404,6 +405,16 @@ compatibility seams rather than delivered as one large file replacement.
   result. Commit ambiguity is reconciled with the same pairing ID and confirmation. Agent
   credential authentication, agent confirmation, consumption, and registration remain separate
   reviewed slices.
+- 2026-08-03: Accept an agent confirmation only while its claimed or confirming attempt remains
+  row-locked and its exact bootstrap credential authenticates against the attempt-bound stored
+  digest. Require the protocol, nonzero 32-byte channel binding, observed device public key, and
+  recomputed canonical device fingerprint to match the claimed mobile candidate. Commit bounded
+  credential failures before returning the generic unavailable result; exact successful retries
+  preserve the first agent confirmation timestamp, and either endpoint may confirm first only when
+  both bindings agree. Credential failures remain bounded while the first agent confirmation is
+  pending, but cannot mutate or exhaust an attempt after its agent binding is durably stored. A
+  successful two-sided confirmation remains non-authoritative until the later atomic consumption
+  and device/workspace registration slice.
 - 2026-07-24: Sign exact pairing ticket claims with Ed25519 and separate pairing purpose from future
   session purpose. Keep signing material only in the control plane and verification keys in the
   relay; keep ticket/replay state short-lived and metadata-only.

@@ -20,6 +20,13 @@ type pairingAttemptStore interface {
 	) (PairingAttempt, bool, error)
 	claimOpenPairingAttempt(context.Context, pgx.Tx, string, PairingAttemptClaim) error
 	confirmMobilePairingAttempt(context.Context, pgx.Tx, string, MobilePairingConfirmation) error
+	confirmAgentPairingAttempt(
+		context.Context,
+		pgx.Tx,
+		string,
+		[]byte,
+		AgentPairingConfirmation,
+	) (bool, error)
 }
 
 type pairingAttemptService struct {
@@ -219,6 +226,75 @@ func (service *pairingAttemptService) confirmMobile(
 	}
 	if commitErr := tx.Commit(operationCtx); commitErr != nil {
 		return fmt.Errorf("%w: %w", ErrPairingAttemptCommitOutcomeUnknown, commitErr)
+	}
+	return nil
+}
+
+// confirmAgent authenticates the agent bootstrap credential and records its
+// handshake observation in one transaction. Rejected credentials are committed
+// before returning unavailable; successful commit ambiguity requires exact retry.
+func (service *pairingAttemptService) confirmAgent(
+	ctx context.Context,
+	encodedID string,
+	credential []byte,
+	confirmation AgentPairingConfirmation,
+) (err error) {
+	if ctx == nil || service == nil || service.transactions == nil || service.attempts == nil ||
+		service.operationMax <= 0 {
+		return ErrPairingAttemptPersistenceUnavailable
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !confirmation.valid() {
+		return ErrInvalidPairingAttemptConfirmation
+	}
+
+	operationCtx, cancelOperation := context.WithTimeout(ctx, service.operationMax)
+	defer cancelOperation()
+	tx, beginErr := service.transactions.Begin(operationCtx)
+	if tx == nil {
+		return pairingAttemptServiceError("begin agent confirmation", beginErr)
+	}
+	defer func() {
+		rollbackCtx, cancelRollback := context.WithTimeout(context.WithoutCancel(ctx), serviceCleanupTimeout)
+		defer cancelRollback()
+		rollbackErr := tx.Rollback(rollbackCtx)
+		if rollbackErr == nil || errors.Is(rollbackErr, pgx.ErrTxClosed) {
+			return
+		}
+		rollbackErr = pairingAttemptServiceError("rollback agent confirmation", rollbackErr)
+		if err == nil {
+			err = rollbackErr
+			return
+		}
+		err = errors.Join(err, rollbackErr)
+	}()
+	if beginErr != nil {
+		return pairingAttemptServiceError("begin agent confirmation", beginErr)
+	}
+
+	matched, confirmationErr := service.attempts.confirmAgentPairingAttempt(
+		operationCtx, tx, encodedID, credential, confirmation,
+	)
+	if confirmationErr != nil {
+		if errors.Is(confirmationErr, ErrPairingAttemptUnavailable) ||
+			errors.Is(confirmationErr, ErrInvalidPairingAttemptConfirmation) {
+			return confirmationErr
+		}
+		return pairingAttemptServiceError("confirm agent", confirmationErr)
+	}
+	commitCtx := context.Context(operationCtx)
+	cancelCommit := func() {}
+	if !matched {
+		commitCtx, cancelCommit = context.WithTimeout(context.WithoutCancel(ctx), serviceCleanupTimeout)
+	}
+	defer cancelCommit()
+	if commitErr := tx.Commit(commitCtx); commitErr != nil {
+		return fmt.Errorf("%w: %w", ErrPairingAttemptCommitOutcomeUnknown, commitErr)
+	}
+	if !matched {
+		return ErrPairingAttemptUnavailable
 	}
 	return nil
 }

@@ -65,6 +65,8 @@ func TestPairingAttemptRepositoryIntegration(t *testing.T) {
 	assertMobilePairingConfirmationRejectsCorruptBindings(t, ctx, pool, repository, createdAt.Add(8*time.Minute))
 	assertMobilePairingConfirmationExpiresWhileWaiting(t, ctx, pool, repository, createdAt.Add(9*time.Minute))
 	assertMobilePairingConfirmationAfterAgentFirst(t, ctx, pool, repository, createdAt.Add(10*time.Minute))
+	assertAgentPairingConfirmationTransition(t, ctx, pool, repository, createdAt.Add(11*time.Minute))
+	assertAgentPairingConfirmationCommitReconciliation(t, ctx, pool, repository, createdAt.Add(12*time.Minute))
 
 	duplicateTx := beginSessionIntegrationTx(t, ctx, pool, "pairing attempt duplicate")
 	if err := repository.CreatePairingAttempt(
@@ -1008,6 +1010,247 @@ func assertMobilePairingConfirmationAfterAgentFirst(
 	}
 }
 
+func assertAgentPairingConfirmationTransition(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	repository *Repository,
+	createdAt time.Time,
+) {
+	t.Helper()
+	attempt := newPairingAttemptRepositoryFixture(t, createdAt)
+	deletePairingAttemptFixture(t, pool, attempt.id.String())
+	t.Cleanup(func() { deletePairingAttemptFixture(t, pool, attempt.id.String()) })
+	createTx := beginSessionIntegrationTx(t, ctx, pool, "agent confirmation create")
+	if err := repository.CreatePairingAttempt(ctx, createTx, attempt); err != nil {
+		t.Fatalf("CreatePairingAttempt(agent confirmation) error = %v", err)
+	}
+	if err := createTx.Commit(ctx); err != nil {
+		t.Fatalf("commit agent confirmation fixture: %v", err)
+	}
+	claim, err := NewPairingAttemptClaim(validPairingAttemptClaimSpec(t))
+	if err != nil {
+		t.Fatalf("NewPairingAttemptClaim(agent confirmation) error = %v", err)
+	}
+	service, err := newPairingAttemptService(pool, repository)
+	if err != nil {
+		t.Fatalf("newPairingAttemptService(agent confirmation) error = %v", err)
+	}
+	claimedAt := createdAt.Add(time.Minute)
+	repository.now = func() time.Time { return claimedAt }
+	if err := service.claim(ctx, attempt.id.String(), claim); err != nil {
+		t.Fatalf("claim(agent confirmation) error = %v", err)
+	}
+	agentConfirmation, err := NewAgentPairingConfirmation(validAgentPairingConfirmationSpec(t))
+	if err != nil {
+		t.Fatalf("NewAgentPairingConfirmation() error = %v", err)
+	}
+
+	failedAt := createdAt.Add(2 * time.Minute)
+	repository.now = func() time.Time { return failedAt }
+	wrongCredential := bytes.Repeat([]byte{0x6a}, pairingBootstrapCredentialLen)
+	if confirmationErr := service.confirmAgent(
+		ctx, attempt.id.String(), wrongCredential, agentConfirmation,
+	); !errors.Is(confirmationErr, ErrPairingAttemptUnavailable) {
+		t.Fatalf("confirmAgent(wrong credential) error = %v", confirmationErr)
+	}
+	assertPairingAttemptClaimedAfterCredentialFailure(
+		t, ctx, pool, attempt.id.String(), claim, claimedAt, failedAt, 1,
+	)
+	if err := service.claim(ctx, attempt.id.String(), claim); err != nil {
+		t.Fatalf("claim(after agent credential failure) error = %v", err)
+	}
+
+	confirmedAt := createdAt.Add(3 * time.Minute)
+	repository.now = func() time.Time { return confirmedAt }
+	credential := validPairingBootstrapCredential()
+	if err := service.confirmAgent(ctx, attempt.id.String(), credential, agentConfirmation); err != nil {
+		t.Fatalf("confirmAgent() error = %v", err)
+	}
+	assertPairingAttemptAgentConfirmed(
+		t, ctx, pool, attempt.id.String(), agentConfirmation,
+		claimedAt, confirmedAt, confirmedAt, 1,
+	)
+
+	repository.now = func() time.Time { return confirmedAt.Add(time.Second) }
+	if err := service.confirmAgent(ctx, attempt.id.String(), credential, agentConfirmation); err != nil {
+		t.Fatalf("confirmAgent(idempotent retry) error = %v", err)
+	}
+	assertPairingAttemptAgentConfirmed(
+		t, ctx, pool, attempt.id.String(), agentConfirmation,
+		claimedAt, confirmedAt, confirmedAt, 1,
+	)
+
+	conflicts := map[string]func(*AgentPairingConfirmationSpec){
+		"different observed device": func(spec *AgentPairingConfirmationSpec) {
+			key, parseErr := cryptox.ParseX25519PublicKey(bytes.Repeat([]byte{0x65}, 32))
+			if parseErr != nil {
+				t.Fatalf("ParseX25519PublicKey(device conflict) error = %v", parseErr)
+			}
+			fingerprint, fingerprintErr := cryptox.FingerprintX25519PublicKey(key)
+			if fingerprintErr != nil {
+				t.Fatalf("FingerprintX25519PublicKey(device conflict) error = %v", fingerprintErr)
+			}
+			spec.ObservedDevicePublicKey = key
+			spec.ObservedDeviceKeyFingerprint, _ = fingerprint.String()
+		},
+		"different channel binding": func(spec *AgentPairingConfirmationSpec) {
+			spec.ChannelBinding = bytes.Repeat([]byte{0x52}, pairingChannelBindingLen)
+		},
+	}
+	for name, mutate := range conflicts {
+		t.Run(name, func(t *testing.T) {
+			spec := validAgentPairingConfirmationSpec(t)
+			mutate(&spec)
+			conflict, confirmationErr := NewAgentPairingConfirmation(spec)
+			if confirmationErr != nil {
+				t.Fatalf("NewAgentPairingConfirmation(conflict) error = %v", confirmationErr)
+			}
+			if confirmationErr := service.confirmAgent(
+				ctx, attempt.id.String(), credential, conflict,
+			); !errors.Is(confirmationErr, ErrPairingAttemptUnavailable) {
+				t.Fatalf("confirmAgent(%s) error = %v", name, confirmationErr)
+			}
+		})
+	}
+	assertPairingAttemptAgentConfirmed(
+		t, ctx, pool, attempt.id.String(), agentConfirmation,
+		claimedAt, confirmedAt, confirmedAt, 1,
+	)
+
+	repository.now = func() time.Time { return confirmedAt.Add(2 * time.Second) }
+	for attemptNumber := 0; attemptNumber <= maxPairingAttemptFailures; attemptNumber++ {
+		if confirmationErr := service.confirmAgent(
+			ctx, attempt.id.String(), wrongCredential, agentConfirmation,
+		); !errors.Is(confirmationErr, ErrPairingAttemptUnavailable) {
+			t.Fatalf(
+				"confirmAgent(wrong credential after confirmation %d) error = %v",
+				attemptNumber, confirmationErr,
+			)
+		}
+	}
+	assertPairingAttemptAgentConfirmed(
+		t, ctx, pool, attempt.id.String(), agentConfirmation,
+		claimedAt, confirmedAt, confirmedAt, 1,
+	)
+
+	mobileConfirmation, err := NewMobilePairingConfirmation(validMobilePairingConfirmationSpec(t))
+	if err != nil {
+		t.Fatalf("NewMobilePairingConfirmation(after agent) error = %v", err)
+	}
+	mobileConfirmedAt := createdAt.Add(4 * time.Minute)
+	repository.now = func() time.Time { return mobileConfirmedAt }
+	if err := service.confirmMobile(ctx, attempt.id.String(), mobileConfirmation); err != nil {
+		t.Fatalf("confirmMobile(after agent) error = %v", err)
+	}
+	assertPairingAttemptBothConfirmed(
+		t, ctx, pool, attempt.id.String(), mobileConfirmation.channelBinding,
+		claimedAt, mobileConfirmedAt, confirmedAt, mobileConfirmedAt, 1,
+	)
+
+	repository.now = func() time.Time { return attempt.expiresAt }
+	if confirmationErr := service.confirmAgent(
+		ctx, attempt.id.String(), credential, agentConfirmation,
+	); !errors.Is(confirmationErr, ErrPairingAttemptUnavailable) {
+		t.Fatalf("confirmAgent(expired retry) error = %v", confirmationErr)
+	}
+	assertPairingAttemptBothConfirmed(
+		t, ctx, pool, attempt.id.String(), mobileConfirmation.channelBinding,
+		claimedAt, mobileConfirmedAt, confirmedAt, mobileConfirmedAt, 1,
+	)
+}
+
+func assertAgentPairingConfirmationCommitReconciliation(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	repository *Repository,
+	createdAt time.Time,
+) {
+	t.Helper()
+	attempt := newPairingAttemptRepositoryFixture(t, createdAt)
+	deletePairingAttemptFixture(t, pool, attempt.id.String())
+	t.Cleanup(func() { deletePairingAttemptFixture(t, pool, attempt.id.String()) })
+	createTx := beginSessionIntegrationTx(t, ctx, pool, "ambiguous agent confirmation create")
+	if err := repository.CreatePairingAttempt(ctx, createTx, attempt); err != nil {
+		t.Fatalf("CreatePairingAttempt(ambiguous agent confirmation) error = %v", err)
+	}
+	if err := createTx.Commit(ctx); err != nil {
+		t.Fatalf("commit ambiguous agent confirmation fixture: %v", err)
+	}
+	claim, err := NewPairingAttemptClaim(validPairingAttemptClaimSpec(t))
+	if err != nil {
+		t.Fatalf("NewPairingAttemptClaim(ambiguous agent confirmation) error = %v", err)
+	}
+	service, err := newPairingAttemptService(pool, repository)
+	if err != nil {
+		t.Fatalf("newPairingAttemptService(ambiguous agent confirmation) error = %v", err)
+	}
+	claimedAt := createdAt.Add(time.Minute)
+	repository.now = func() time.Time { return claimedAt }
+	if err := service.claim(ctx, attempt.id.String(), claim); err != nil {
+		t.Fatalf("claim(ambiguous agent confirmation) error = %v", err)
+	}
+	mobileConfirmation, err := NewMobilePairingConfirmation(validMobilePairingConfirmationSpec(t))
+	if err != nil {
+		t.Fatalf("NewMobilePairingConfirmation(ambiguous agent confirmation) error = %v", err)
+	}
+	mobileConfirmedAt := createdAt.Add(2 * time.Minute)
+	repository.now = func() time.Time { return mobileConfirmedAt }
+	if err := service.confirmMobile(ctx, attempt.id.String(), mobileConfirmation); err != nil {
+		t.Fatalf("confirmMobile(ambiguous agent confirmation) error = %v", err)
+	}
+
+	conflictSpec := validAgentPairingConfirmationSpec(t)
+	conflictSpec.ChannelBinding = bytes.Repeat([]byte{0x52}, pairingChannelBindingLen)
+	conflict, err := NewAgentPairingConfirmation(conflictSpec)
+	if err != nil {
+		t.Fatalf("NewAgentPairingConfirmation(mobile-first conflict) error = %v", err)
+	}
+	repository.now = func() time.Time { return mobileConfirmedAt.Add(time.Second) }
+	if confirmationErr := service.confirmAgent(
+		ctx, attempt.id.String(), validPairingBootstrapCredential(), conflict,
+	); !errors.Is(confirmationErr, ErrPairingAttemptUnavailable) {
+		t.Fatalf("confirmAgent(mobile-first conflict) error = %v", confirmationErr)
+	}
+	assertPairingAttemptMobileConfirmed(
+		t, ctx, pool, attempt.id.String(), mobileConfirmation, claimedAt, mobileConfirmedAt,
+	)
+
+	agentConfirmation, err := NewAgentPairingConfirmation(validAgentPairingConfirmationSpec(t))
+	if err != nil {
+		t.Fatalf("NewAgentPairingConfirmation(ambiguous) error = %v", err)
+	}
+	agentConfirmedAt := createdAt.Add(3 * time.Minute)
+	repository.now = func() time.Time { return agentConfirmedAt }
+	ackErr := errors.New("agent confirmation commit acknowledgement lost")
+	ambiguousService, err := newPairingAttemptService(
+		&commitAcknowledgementLostStarter{pool: pool, err: ackErr}, repository,
+	)
+	if err != nil {
+		t.Fatalf("newPairingAttemptService(ambiguous agent) error = %v", err)
+	}
+	if confirmationErr := ambiguousService.confirmAgent(
+		ctx, attempt.id.String(), validPairingBootstrapCredential(), agentConfirmation,
+	); !errors.Is(confirmationErr, ErrPairingAttemptCommitOutcomeUnknown) ||
+		!errors.Is(confirmationErr, ackErr) {
+		t.Fatalf("confirmAgent(ambiguous committed outcome) error = %v", confirmationErr)
+	}
+	assertPairingAttemptBothConfirmed(
+		t, ctx, pool, attempt.id.String(), mobileConfirmation.channelBinding,
+		claimedAt, mobileConfirmedAt, agentConfirmedAt, agentConfirmedAt, 0,
+	)
+	if err := service.confirmAgent(
+		ctx, attempt.id.String(), validPairingBootstrapCredential(), agentConfirmation,
+	); err != nil {
+		t.Fatalf("confirmAgent(reconcile exact) error = %v", err)
+	}
+	assertPairingAttemptBothConfirmed(
+		t, ctx, pool, attempt.id.String(), mobileConfirmation.channelBinding,
+		claimedAt, mobileConfirmedAt, agentConfirmedAt, agentConfirmedAt, 0,
+	)
+}
+
 func assertPairingAttemptExpiresWhileWaiting(
 	t *testing.T,
 	ctx context.Context,
@@ -1190,6 +1433,115 @@ func assertPairingAttemptMobileConfirmed(
 		!claimedAt.Equal(wantClaimedAt) || !confirmedAt.Equal(wantConfirmedAt) ||
 		!updatedAt.Equal(wantConfirmedAt) || !hasNoAgentConfirmation {
 		t.Fatal("stored pairing attempt did not preserve the exact mobile confirmation")
+	}
+}
+
+func assertPairingAttemptClaimedAfterCredentialFailure(
+	t *testing.T,
+	ctx context.Context,
+	reader sessionRowReader,
+	id string,
+	want PairingAttemptClaim,
+	wantClaimedAt time.Time,
+	wantUpdatedAt time.Time,
+	wantFailures int,
+) {
+	t.Helper()
+	var state, ownerID string
+	var claimedAt, updatedAt time.Time
+	var failedAttemptCount int
+	var hasNoConfirmation bool
+	if err := reader.QueryRow(ctx, `
+		SELECT state, claimed_user_id, claimed_at, updated_at, failed_attempt_count,
+		       mobile_channel_binding IS NULL AND mobile_confirmed_at IS NULL
+		         AND agent_channel_binding IS NULL AND agent_confirmed_at IS NULL
+		         AND consumed_at IS NULL
+		FROM session.pairing_attempts WHERE id = $1`, id,
+	).Scan(
+		&state, &ownerID, &claimedAt, &updatedAt, &failedAttemptCount, &hasNoConfirmation,
+	); err != nil {
+		t.Fatalf("read claimed pairing attempt after credential failure: %v", err)
+	}
+	if state != string(pairingAttemptStateClaimed) || ownerID != want.ownerID.String() ||
+		!claimedAt.Equal(wantClaimedAt) || !updatedAt.Equal(wantUpdatedAt) ||
+		failedAttemptCount != wantFailures || !hasNoConfirmation {
+		t.Fatal("credential rejection did not preserve the claimed pairing attempt")
+	}
+}
+
+func assertPairingAttemptAgentConfirmed(
+	t *testing.T,
+	ctx context.Context,
+	reader sessionRowReader,
+	id string,
+	want AgentPairingConfirmation,
+	wantClaimedAt time.Time,
+	wantConfirmedAt time.Time,
+	wantUpdatedAt time.Time,
+	wantFailures int,
+) {
+	t.Helper()
+	var state string
+	var channelBinding []byte
+	var claimedAt, confirmedAt, updatedAt time.Time
+	var failedAttemptCount int
+	var hasNoMobileConfirmation bool
+	if err := reader.QueryRow(ctx, `
+		SELECT state, agent_channel_binding, claimed_at, agent_confirmed_at, updated_at,
+		       failed_attempt_count,
+		       mobile_channel_binding IS NULL AND mobile_confirmed_at IS NULL
+		         AND consumed_at IS NULL
+		FROM session.pairing_attempts WHERE id = $1`, id,
+	).Scan(
+		&state, &channelBinding, &claimedAt, &confirmedAt, &updatedAt,
+		&failedAttemptCount, &hasNoMobileConfirmation,
+	); err != nil {
+		t.Fatalf("read agent-confirmed pairing attempt: %v", err)
+	}
+	if state != string(pairingAttemptStateConfirming) ||
+		!bytes.Equal(channelBinding, want.channelBinding[:]) ||
+		!claimedAt.Equal(wantClaimedAt) || !confirmedAt.Equal(wantConfirmedAt) ||
+		!updatedAt.Equal(wantUpdatedAt) || failedAttemptCount != wantFailures ||
+		!hasNoMobileConfirmation {
+		t.Fatal("stored pairing attempt did not preserve the exact agent confirmation")
+	}
+}
+
+func assertPairingAttemptBothConfirmed(
+	t *testing.T,
+	ctx context.Context,
+	reader sessionRowReader,
+	id string,
+	wantBinding [pairingChannelBindingLen]byte,
+	wantClaimedAt time.Time,
+	wantMobileConfirmedAt time.Time,
+	wantAgentConfirmedAt time.Time,
+	wantUpdatedAt time.Time,
+	wantFailures int,
+) {
+	t.Helper()
+	var state string
+	var mobileBinding, agentBinding []byte
+	var claimedAt, mobileConfirmedAt, agentConfirmedAt, updatedAt time.Time
+	var failedAttemptCount int
+	var notConsumed bool
+	if err := reader.QueryRow(ctx, `
+		SELECT state, mobile_channel_binding, agent_channel_binding, claimed_at,
+		       mobile_confirmed_at, agent_confirmed_at, updated_at, failed_attempt_count,
+		       consumed_at IS NULL
+		FROM session.pairing_attempts WHERE id = $1`, id,
+	).Scan(
+		&state, &mobileBinding, &agentBinding, &claimedAt,
+		&mobileConfirmedAt, &agentConfirmedAt, &updatedAt, &failedAttemptCount, &notConsumed,
+	); err != nil {
+		t.Fatalf("read two-sided pairing confirmation: %v", err)
+	}
+	if state != string(pairingAttemptStateConfirming) ||
+		!bytes.Equal(mobileBinding, wantBinding[:]) || !bytes.Equal(agentBinding, wantBinding[:]) ||
+		!claimedAt.Equal(wantClaimedAt) || !mobileConfirmedAt.Equal(wantMobileConfirmedAt) ||
+		!agentConfirmedAt.Equal(wantAgentConfirmedAt) || !updatedAt.Equal(wantUpdatedAt) ||
+		failedAttemptCount != wantFailures || !notConsumed {
+		t.Fatal("stored pairing attempt did not preserve matching two-sided confirmations")
 	}
 }
 

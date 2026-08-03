@@ -461,6 +461,9 @@ func (repository *Repository) lockClaimedPairingAttempt(
 		},
 		claimedAt: claimedAt.Time.UTC(),
 	}
+	if attempt.updatedAt.Before(locked.claimedAt) {
+		return lockedClaimedPairingAttempt{}, ErrPairingAttemptUnavailable
+	}
 	if mobileBinding != nil {
 		if len(mobileBinding) != pairingChannelBindingLen || allZero(mobileBinding) || !mobileConfirmedAt.Valid {
 			return lockedClaimedPairingAttempt{}, ErrPairingAttemptUnavailable
@@ -498,7 +501,8 @@ func (repository *Repository) lockClaimedPairingAttempt(
 		return lockedClaimedPairingAttempt{}, ErrPairingAttemptUnavailable
 	}
 	if attempt.state == pairingAttemptStateClaimed {
-		if locked.hasMobileBinding || locked.hasAgentBinding || !attempt.updatedAt.Equal(locked.claimedAt) {
+		if locked.hasMobileBinding || locked.hasAgentBinding ||
+			(attempt.failedAttemptCount == 0 && !attempt.updatedAt.Equal(locked.claimedAt)) {
 			return lockedClaimedPairingAttempt{}, ErrPairingAttemptUnavailable
 		}
 	} else if attempt.state != pairingAttemptStateConfirming ||
@@ -578,6 +582,126 @@ func (repository *Repository) confirmMobilePairingAttempt(
 		return ErrPairingAttemptUnavailable
 	}
 	return nil
+}
+
+// confirmAgentPairingAttempt authenticates the bootstrap credential and records
+// the agent endpoint's exact handshake observation under the same row lock.
+// A false match is a committed failure-count outcome, not authorization.
+func (repository *Repository) confirmAgentPairingAttempt(
+	ctx context.Context,
+	tx pgx.Tx,
+	encodedID string,
+	credential []byte,
+	confirmation AgentPairingConfirmation,
+) (bool, error) {
+	if ctx == nil || repository == nil || repository.now == nil || repository.operationMax <= 0 {
+		return false, ErrPairingAttemptPersistenceUnavailable
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if tx == nil {
+		return false, ErrPairingAttemptPersistenceUnavailable
+	}
+	if !confirmation.valid() {
+		return false, ErrInvalidPairingAttemptConfirmation
+	}
+	locked, err := repository.lockClaimedPairingAttempt(ctx, tx, encodedID)
+	if err != nil {
+		return false, err
+	}
+
+	candidateHash, credentialErr := HashPairingBootstrapCredential(encodedID, credential)
+	matched := subtle.ConstantTimeCompare(candidateHash[:], locked.attempt.bootstrapCredentialHash[:])
+	clear(candidateHash[:])
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	authenticatedAt := repository.now().UTC()
+	if authenticatedAt.IsZero() || authenticatedAt.Before(locked.attempt.lockedAt) {
+		return false, ErrPairingAttemptPersistenceUnavailable
+	}
+	if !locked.attempt.expiresAt.After(authenticatedAt) {
+		return false, ErrPairingAttemptUnavailable
+	}
+
+	if credentialErr != nil || matched != 1 {
+		if locked.hasAgentBinding {
+			return false, ErrPairingAttemptUnavailable
+		}
+		failedAt := authenticatedAt.Truncate(time.Microsecond)
+		if failedAt.Before(locked.attempt.updatedAt) || !locked.attempt.expiresAt.After(failedAt) {
+			return false, ErrPairingAttemptUnavailable
+		}
+		operationCtx, cancelOperation := context.WithTimeout(ctx, repository.operationMax)
+		defer cancelOperation()
+		result, updateErr := tx.Exec(operationCtx, `
+			UPDATE session.pairing_attempts
+			SET failed_attempt_count = failed_attempt_count + 1, updated_at = $1
+			WHERE id = $2 AND state = $3
+			  AND failed_attempt_count = $4 AND failed_attempt_count < $5
+			  AND updated_at = $6 AND expires_at > $1
+			  AND claimed_user_id = $7 AND consumed_at IS NULL`,
+			failedAt, locked.attempt.id.String(), string(locked.attempt.state),
+			locked.attempt.failedAttemptCount, maxPairingAttemptFailures,
+			locked.attempt.updatedAt, locked.claim.ownerID.String(),
+		)
+		if updateErr != nil {
+			return false, pairingAttemptPersistenceError("record agent credential failure", updateErr)
+		}
+		if result.RowsAffected() != 1 {
+			return false, ErrPairingAttemptUnavailable
+		}
+		return false, nil
+	}
+
+	if locked.attempt.protocolVersion != confirmation.protocolVersion ||
+		!locked.claim.devicePublicKey.Equal(confirmation.observedDevicePublicKey) ||
+		!locked.claim.deviceFingerprint.Equal(confirmation.observedDeviceFingerprint) {
+		return false, ErrPairingAttemptUnavailable
+	}
+	if locked.hasAgentBinding {
+		if subtle.ConstantTimeCompare(
+			locked.agentBinding[:], confirmation.channelBinding[:],
+		) != 1 {
+			return false, ErrPairingAttemptUnavailable
+		}
+		return true, nil
+	}
+	if locked.hasMobileBinding && subtle.ConstantTimeCompare(
+		locked.mobileBinding[:], confirmation.channelBinding[:],
+	) != 1 {
+		return false, ErrPairingAttemptUnavailable
+	}
+
+	confirmedAt := authenticatedAt.Truncate(time.Microsecond)
+	if confirmedAt.Before(locked.attempt.updatedAt) || !locked.attempt.expiresAt.After(confirmedAt) {
+		return false, ErrPairingAttemptUnavailable
+	}
+	operationCtx, cancelOperation := context.WithTimeout(ctx, repository.operationMax)
+	defer cancelOperation()
+	result, err := tx.Exec(operationCtx, `
+		UPDATE session.pairing_attempts
+		SET state = 'confirming', agent_channel_binding = $1,
+		    agent_confirmed_at = $2, updated_at = $2
+		WHERE id = $3
+		  AND state = $4 AND updated_at = $5 AND expires_at > $2
+		  AND failed_attempt_count = $6 AND failed_attempt_count < $7
+		  AND claimed_user_id = $8
+		  AND agent_channel_binding IS NULL AND agent_confirmed_at IS NULL
+		  AND (mobile_channel_binding IS NULL OR mobile_channel_binding = $1)
+		  AND consumed_at IS NULL`,
+		confirmation.channelBinding[:], confirmedAt, locked.attempt.id.String(),
+		string(locked.attempt.state), locked.attempt.updatedAt, locked.attempt.failedAttemptCount,
+		maxPairingAttemptFailures, locked.claim.ownerID.String(),
+	)
+	if err != nil {
+		return false, pairingAttemptPersistenceError("confirm agent", err)
+	}
+	if result.RowsAffected() != 1 {
+		return false, ErrPairingAttemptUnavailable
+	}
+	return true, nil
 }
 
 func pairingAttemptPersistenceError(operation string, err error) error {
