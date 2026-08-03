@@ -60,6 +60,21 @@ func NewDevice(
 	if !ok {
 		return Device{}, ErrDeviceAccessDenied
 	}
+	return newDeviceForOwner(ownerID, id, name, platform, publicKey, pairedAt)
+}
+
+func newDeviceForOwner(
+	ownerID auth.UserID,
+	id string,
+	name string,
+	platform Platform,
+	publicKey cryptox.X25519PublicKey,
+	pairedAt time.Time,
+) (Device, error) {
+	parsedOwnerID, err := auth.ParseUserID(ownerID.String())
+	if err != nil || parsedOwnerID != ownerID {
+		return Device{}, ErrDeviceAccessDenied
+	}
 	if len(id) != encodedDeviceIDLength || id != strings.ToLower(id) {
 		return Device{}, fmt.Errorf("%w: id", ErrInvalidDevice)
 	}

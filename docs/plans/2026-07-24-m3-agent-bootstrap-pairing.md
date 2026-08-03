@@ -302,7 +302,8 @@ compatibility seams rather than delivered as one large file replacement.
 - [x] Implement the bootstrap-authenticated agent channel-binding confirmation transition.
 - [x] Implement claim/confirmation state transitions.
 - [x] Backfill and constrain device/workspace canonical fingerprints.
-- [ ] Implement device-owned and workspace-owned registration/listing boundaries.
+- [x] Implement device-owned and workspace-owned pairing registration boundaries.
+- [ ] Implement device-owned and workspace-owned paired listing boundaries.
 - [ ] Implement signed agent artifact generation and verification documentation.
 - [ ] Implement bounded agent bootstrap and outbound pairing lifecycle.
 - [ ] Implement pairing-only relay admission, routing, replay, and cleanup.
@@ -422,6 +423,13 @@ compatibility seams rather than delivered as one large file replacement.
   constrain future key/fingerprint writes to remain equal. Keep device and workspace migrations
   independent and transactional so a failed preflight or constraint installation records no
   migration ledger entry; atomic pairing consumption and registration remain the next slice.
+- 2026-08-03: Register pairing-authenticated device and agent candidates only through their owning
+  modules inside a caller-owned transaction. Compute fingerprints locally, canonicalize durable
+  timestamps to PostgreSQL microsecond precision, and accept a conflict only when the complete
+  active owner, ID, metadata, key, fingerprint, and timestamp remain exact. A foreign owner,
+  changed identity, key collision, or revoked row fails closed. Grant the runtime role column-level
+  insert access only to the registration fields; atomic session-owned attempt consumption and
+  paired endpoint listing remain separate slices.
 - 2026-07-24: Sign exact pairing ticket claims with Ed25519 and separate pairing purpose from future
   session purpose. Keep signing material only in the control plane and verification keys in the
   relay; keep ticket/replay state short-lived and metadata-only.

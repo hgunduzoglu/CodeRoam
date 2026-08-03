@@ -62,6 +62,60 @@ BEGIN;
 SET LOCAL ROLE $runtime_role;
 SELECT id FROM device.devices WHERE false FOR SHARE;
 SELECT id FROM workspace.agents WHERE false FOR SHARE;
+INSERT INTO device.devices (
+  id, user_id, name, platform, static_public_key, public_key_fingerprint, paired_at
+) VALUES (
+  '10000000000000000000000000000001',
+  '10000000000000000000000000000002',
+  'Runtime privilege smoke device',
+  'ios',
+  decode(repeat('11', 32), 'hex'),
+  'x25519-sha256:' || encode(sha256(decode(repeat('11', 32), 'hex')), 'hex'),
+  now()
+);
+INSERT INTO workspace.agents (
+  id, user_id, name, static_public_key, public_key_fingerprint, version, created_at
+) VALUES (
+  '10000000000000000000000000000003',
+  '10000000000000000000000000000002',
+  'Runtime privilege smoke agent',
+  decode(repeat('22', 32), 'hex'),
+  'x25519-sha256:' || encode(sha256(decode(repeat('22', 32), 'hex')), 'hex'),
+  'smoke',
+  now()
+);
+INSERT INTO device.devices (
+  id, user_id, name, platform, static_public_key, public_key_fingerprint, paired_at
+) VALUES (
+  '10000000000000000000000000000001',
+  '10000000000000000000000000000002',
+  'Runtime privilege smoke device',
+  'ios',
+  decode(repeat('11', 32), 'hex'),
+  'x25519-sha256:' || encode(sha256(decode(repeat('11', 32), 'hex')), 'hex'),
+  now()
+) ON CONFLICT DO NOTHING;
+SELECT id FROM device.devices
+WHERE id = '10000000000000000000000000000001'
+   OR public_key_fingerprint =
+     'x25519-sha256:' || encode(sha256(decode(repeat('11', 32), 'hex')), 'hex')
+FOR UPDATE;
+INSERT INTO workspace.agents (
+  id, user_id, name, static_public_key, public_key_fingerprint, version, created_at
+) VALUES (
+  '10000000000000000000000000000003',
+  '10000000000000000000000000000002',
+  'Runtime privilege smoke agent',
+  decode(repeat('22', 32), 'hex'),
+  'x25519-sha256:' || encode(sha256(decode(repeat('22', 32), 'hex')), 'hex'),
+  'smoke',
+  now()
+) ON CONFLICT DO NOTHING;
+SELECT id FROM workspace.agents
+WHERE id = '10000000000000000000000000000003'
+   OR public_key_fingerprint =
+     'x25519-sha256:' || encode(sha256(decode(repeat('22', 32), 'hex')), 'hex')
+FOR UPDATE;
 SELECT p.id
 FROM workspace.projects AS p
 JOIN workspace.environments AS e ON e.id = p.environment_id
@@ -87,9 +141,23 @@ SQL
   least_privilege_result="$("${compose[@]}" exec -T postgres psql -U postgres -d coderoam -Atc "
     SELECT
       NOT has_column_privilege('$runtime_role', 'device.devices', 'user_id', 'UPDATE')
+      AND NOT has_column_privilege('$runtime_role', 'device.devices', 'static_public_key', 'UPDATE')
+      AND NOT has_column_privilege('$runtime_role', 'device.devices', 'public_key_fingerprint', 'UPDATE')
+      AND NOT has_column_privilege('$runtime_role', 'device.devices', 'paired_at', 'UPDATE')
       AND NOT has_column_privilege('$runtime_role', 'device.devices', 'revoked_at', 'UPDATE')
+      AND has_column_privilege('$runtime_role', 'device.devices', 'id', 'INSERT')
+      AND has_column_privilege('$runtime_role', 'device.devices', 'static_public_key', 'INSERT')
+      AND NOT has_column_privilege('$runtime_role', 'device.devices', 'revoked_at', 'INSERT')
+      AND NOT has_column_privilege('$runtime_role', 'device.devices', 'last_seen_at', 'INSERT')
+      AND NOT has_column_privilege('$runtime_role', 'workspace.agents', 'user_id', 'UPDATE')
       AND NOT has_column_privilege('$runtime_role', 'workspace.agents', 'static_public_key', 'UPDATE')
+      AND NOT has_column_privilege('$runtime_role', 'workspace.agents', 'public_key_fingerprint', 'UPDATE')
+      AND NOT has_column_privilege('$runtime_role', 'workspace.agents', 'created_at', 'UPDATE')
       AND NOT has_column_privilege('$runtime_role', 'workspace.agents', 'revoked_at', 'UPDATE')
+      AND has_column_privilege('$runtime_role', 'workspace.agents', 'id', 'INSERT')
+      AND has_column_privilege('$runtime_role', 'workspace.agents', 'static_public_key', 'INSERT')
+      AND NOT has_column_privilege('$runtime_role', 'workspace.agents', 'revoked_at', 'INSERT')
+      AND NOT has_column_privilege('$runtime_role', 'workspace.agents', 'last_seen_at', 'INSERT')
       AND NOT has_column_privilege('$runtime_role', 'workspace.environments', 'user_id', 'UPDATE')
       AND NOT has_column_privilege('$runtime_role', 'workspace.projects', 'root_path', 'UPDATE')
       AND NOT has_column_privilege('$runtime_role', 'session.sessions', 'user_id', 'UPDATE')
@@ -133,7 +201,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   (cd services/control-plane && \
     POSTGRES_TEST_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' \
       go test -count=1 \
-        -run '^(TestAuthorizationIntegration|TestAuthorizationLockIntegration|TestAuthorizationTimeoutIntegration|TestDeviceFingerprintMigrationIntegration|TestRepositoryIntegration)$' \
+        -run '^(TestAuthorizationIntegration|TestAuthorizationLockIntegration|TestAuthorizationTimeoutIntegration|TestDeviceFingerprintMigrationIntegration|TestRepositoryIntegration|TestRepositoryRegisterPairedIntegration|TestRepositoryRegisterPairedTimeoutIntegration|TestRepositoryRegisterPairedConcurrentRetryIntegration)$' \
         ./internal/device)
   (cd services/control-plane && \
     POSTGRES_TEST_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' \
@@ -146,7 +214,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   (cd services/control-plane && \
     POSTGRES_TEST_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' \
       go test -count=1 \
-        -run '^(TestAgentFingerprintMigrationIntegration|TestRepositoryAgentRevocationIntegration|TestRepositoryAuthorizeAgentIntegration|TestRepositoryAuthorizeAgentLockIntegration|TestRepositoryAuthorizeAgentTimeoutIntegration|TestRepositoryAuthorizeProjectIntegration|TestRepositoryAuthorizeProjectLockIntegration|TestRepositoryListProjectsIntegration)$' \
+        -run '^(TestAgentFingerprintMigrationIntegration|TestRepositoryAgentRevocationIntegration|TestRepositoryAuthorizeAgentIntegration|TestRepositoryAuthorizeAgentLockIntegration|TestRepositoryAuthorizeAgentTimeoutIntegration|TestRepositoryAuthorizeProjectIntegration|TestRepositoryAuthorizeProjectLockIntegration|TestRepositoryListProjectsIntegration|TestRepositoryRegisterPairedAgentIntegration|TestRepositoryRegisterPairedAgentTimeoutIntegration|TestRepositoryRegisterPairedAgentConcurrentRetryIntegration)$' \
         ./internal/workspace)
   (cd services/worker && \
     POSTGRES_TEST_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' \

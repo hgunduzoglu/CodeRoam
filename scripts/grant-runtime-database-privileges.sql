@@ -20,6 +20,26 @@ TO :"runtime_role";
 
 GRANT INSERT ON TABLE session.sessions TO :"runtime_role";
 
+GRANT INSERT (
+  id,
+  user_id,
+  name,
+  platform,
+  static_public_key,
+  public_key_fingerprint,
+  paired_at
+) ON TABLE device.devices TO :"runtime_role";
+
+GRANT INSERT (
+  id,
+  user_id,
+  name,
+  static_public_key,
+  public_key_fingerprint,
+  version,
+  created_at
+) ON TABLE workspace.agents TO :"runtime_role";
+
 -- PostgreSQL row-locking clauses require UPDATE on at least one column of
 -- every locked table. Keep that permission away from ownership, trust, key,
 -- revocation, and registered-root columns.
