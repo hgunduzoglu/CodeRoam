@@ -24,11 +24,19 @@ M3 migration version 2 locks the agent table and rejects malformed, noncanonical
 duplicate legacy X25519 public keys. This prevents RFC 7748 input aliases from creating multiple
 durable identities for the same DH point. It backfills each canonical fingerprint from the
 validated key and constrains later key/fingerprint writes to remain equal. Any failed preflight or
-constraint installation rolls back the backfill and migration ledger entry. Persisted authorization
-still revalidates the raw public key and never treats fingerprint text alone as pairing proof. Agent
-registration/listing and last-seen metadata remain separate slices. Persisted authorization does not
-begin, commit, or roll back the caller's transaction. Future session issuance must authorize the
-persisted device, agent, and project and write ticket metadata inside that exact transaction.
+constraint installation rolls back the backfill and migration ledger entry. Migration version 3
+adds the owner/creation-time/ID index used by paired-agent listing. Persisted authorization still
+revalidates the raw public key and never treats fingerprint text alone as pairing proof.
+
+Paired-agent listing is a transaction-owning, owner-scoped management read. It returns at most 100
+records ordered by creation time and ID, includes revoked agents so clients can explain their state,
+and exposes the canonical fingerprint but never the static public key. Every stored identity and
+timestamp is revalidated, including recomputing the fingerprint from the hidden key; one corrupt or
+future row fails the whole read instead of returning a partial trust view. Listing does not establish
+that an agent is active: trust-sensitive callers must still use `AuthorizeAgent`. Persisted
+authorization does not begin, commit, or roll back the caller's transaction. Future session issuance
+must authorize the persisted device, agent, and project and write ticket metadata inside that exact
+transaction.
 
 The environment domain binds a canonical opaque environment ID and bounded display/provider
 metadata to an authenticated owner and an active agent already owned by that actor. The provider

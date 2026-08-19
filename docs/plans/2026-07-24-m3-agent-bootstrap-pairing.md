@@ -305,7 +305,7 @@ compatibility seams rather than delivered as one large file replacement.
 - [x] Implement device-owned and workspace-owned pairing registration boundaries.
 - [x] Persist a separate canonical agent ID on each pairing attempt and atomically register both
   endpoints while consuming a matching two-sided confirmation.
-- [ ] Implement device-owned and workspace-owned paired listing boundaries.
+- [x] Implement device-owned and workspace-owned paired listing boundaries.
 - [ ] Implement signed agent artifact generation and verification documentation.
 - [ ] Implement bounded agent bootstrap and outbound pairing lifecycle.
 - [ ] Implement pairing-only relay admission, routing, replay, and cleanup.
@@ -447,6 +447,11 @@ compatibility seams rather than delivered as one large file replacement.
 - 2026-07-24: Complete ownership only after both endpoints submit the same channel binding and the
   session-owned attempt is consumed in the same transaction as device-owned and workspace-owned
   registration. No cross-schema SQL decides authorization or trust.
+- 2026-08-19: Keep paired device and agent listing inside their owning repositories as bounded,
+  owner-scoped management reads. Return at most 100 records in deterministic indexed order and keep
+  revoked identities visible, but never return static public keys or treat list membership as active
+  trust. Recompute each fingerprint from the stored key and fail the entire read on corrupt or future
+  state; authorization continues through the owning module's explicit authorization method.
 - 2026-07-24: Persist local pins only after consumed status is observed. Treat commit/network
   ambiguity as a retry/reconciliation problem and never rotate identity automatically.
 - 2026-07-24: Do not automatically attach a newly paired agent to the existing M2

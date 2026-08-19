@@ -65,6 +65,16 @@ func TestDeviceFingerprintMigrationIntegration(t *testing.T) {
 		if want := rawFingerprint(key); storedFingerprint != want {
 			t.Fatalf("backfilled fingerprint = %q, want %q", storedFingerprint, want)
 		}
+		var indexDefinition string
+		if err := conn.QueryRow(ctx, `
+			SELECT indexdef FROM pg_indexes
+			WHERE schemaname = 'device_fingerprint_migration_test'
+			  AND indexname = 'devices_owner_paired_idx'`).Scan(&indexDefinition); err != nil {
+			t.Fatalf("read paired device list index: %v", err)
+		}
+		if !strings.Contains(indexDefinition, "(user_id, paired_at DESC, id)") {
+			t.Fatalf("paired device list index = %q", indexDefinition)
+		}
 
 		assertDeviceFingerprintConstraint(
 			t, ctx, conn, []string{
@@ -246,6 +256,7 @@ func deviceFingerprintTestMigrations(t *testing.T) []postgresx.Migration {
 	}{
 		{version: 1, name: "init", path: "migrations/000001_init.sql"},
 		{version: 2, name: "canonical_fingerprint", path: "migrations/000002_canonical_fingerprint.sql"},
+		{version: 3, name: "paired_device_list_index", path: "migrations/000003_paired_device_list_index.sql"},
 	}
 	migrations := make([]postgresx.Migration, 0, len(files))
 	for _, file := range files {

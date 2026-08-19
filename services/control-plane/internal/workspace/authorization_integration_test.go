@@ -263,6 +263,10 @@ func applyWorkspaceIntegrationMigrations(
 			scope: "workspace", version: 2, name: "canonical_agent_fingerprint",
 			path: "migrations/000002_canonical_agent_fingerprint.sql",
 		},
+		{
+			scope: "workspace", version: 3, name: "paired_agent_list_index",
+			path: "migrations/000003_paired_agent_list_index.sql",
+		},
 		{scope: "outbox", version: 1, name: "init", path: "../outbox/migrations/000001_init.sql"},
 	} {
 		sql, err := os.ReadFile(migration.path)

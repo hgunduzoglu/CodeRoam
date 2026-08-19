@@ -304,10 +304,18 @@ func applySessionServiceIntegrationMigrations(
 			scope: "device", version: 2, name: "canonical_fingerprint",
 			path: "../device/migrations/000002_canonical_fingerprint.sql",
 		},
+		{
+			scope: "device", version: 3, name: "paired_device_list_index",
+			path: "../device/migrations/000003_paired_device_list_index.sql",
+		},
 		{scope: "workspace", version: 1, name: "init", path: "../workspace/migrations/000001_init.sql"},
 		{
 			scope: "workspace", version: 2, name: "canonical_agent_fingerprint",
 			path: "../workspace/migrations/000002_canonical_agent_fingerprint.sql",
+		},
+		{
+			scope: "workspace", version: 3, name: "paired_agent_list_index",
+			path: "../workspace/migrations/000003_paired_agent_list_index.sql",
 		},
 		{scope: "session", version: 1, name: "init", path: "migrations/000001_init.sql"},
 		{

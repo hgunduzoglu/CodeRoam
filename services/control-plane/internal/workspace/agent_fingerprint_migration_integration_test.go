@@ -65,6 +65,16 @@ func TestAgentFingerprintMigrationIntegration(t *testing.T) {
 		if want := rawAgentFingerprint(key); storedFingerprint != want {
 			t.Fatalf("backfilled fingerprint = %q, want %q", storedFingerprint, want)
 		}
+		var indexDefinition string
+		if err := conn.QueryRow(ctx, `
+			SELECT indexdef FROM pg_indexes
+			WHERE schemaname = 'workspace_agent_fingerprint_migration_test'
+			  AND indexname = 'agents_owner_created_idx'`).Scan(&indexDefinition); err != nil {
+			t.Fatalf("read paired agent list index: %v", err)
+		}
+		if !strings.Contains(indexDefinition, "(user_id, created_at DESC, id)") {
+			t.Fatalf("paired agent list index = %q", indexDefinition)
+		}
 
 		assertAgentFingerprintConstraint(
 			t, ctx, conn, []string{
@@ -246,6 +256,7 @@ func agentFingerprintTestMigrations(t *testing.T) []postgresx.Migration {
 	}{
 		{version: 1, name: "init", path: "migrations/000001_init.sql"},
 		{version: 2, name: "canonical_agent_fingerprint", path: "migrations/000002_canonical_agent_fingerprint.sql"},
+		{version: 3, name: "paired_agent_list_index", path: "migrations/000003_paired_agent_list_index.sql"},
 	}
 	migrations := make([]postgresx.Migration, 0, len(files))
 	for _, file := range files {
