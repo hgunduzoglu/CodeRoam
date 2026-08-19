@@ -10,6 +10,11 @@ import (
 	"strings"
 )
 
+var (
+	version = "0.1.0-dev"
+	commit  = "unknown"
+)
+
 func main() {
 	flag.Parse()
 	command := "run"
@@ -29,11 +34,15 @@ func main() {
 		fmt.Println(secret)
 		fmt.Println("The production flow encodes this in a QR payload and uses Noise XXpsk3.")
 	case "version":
-		fmt.Println("coderoam-agent 0.1.0-dev")
+		fmt.Println(versionOutput())
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n", command)
 		os.Exit(2)
 	}
+}
+
+func versionOutput() string {
+	return fmt.Sprintf("coderoam-agent %s (%s)", version, commit)
 }
 
 func pairingSecret() (string, error) {

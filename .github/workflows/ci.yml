@@ -23,6 +23,7 @@ jobs:
       - run: make lint-go
       - run: make test-go
       - run: make build-go
+      - run: make test-agent-release
 
   webviews:
     runs-on: ubuntu-latest

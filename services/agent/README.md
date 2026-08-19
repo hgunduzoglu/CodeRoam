@@ -14,3 +14,7 @@ root-owned sticky shared directories. macOS development builds apply the same ch
 inspection and therefore require CGO. A fixed, fsynced pending record lets explicit initialization
 recover the same key after a crash; invalid pending state blocks generation instead of rotating the
 identity. Concurrent initialization uses a context-aware exclusive lock.
+
+Linux release artifacts, checksum/provenance verification, and the non-root installation boundary
+are documented in [`docs/agent-release.md`](../../docs/agent-release.md). The release pipeline never
+publishes pull-request code and does not add autonomous update or privileged runtime behavior.

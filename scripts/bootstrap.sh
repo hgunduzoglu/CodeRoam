@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-required=(git go docker python3 node npm)
+required=(git go docker python3 node npm jq)
 optional=(flutter dart buf protoc)
 
 echo "CodeRoam tool check"

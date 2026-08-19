@@ -1,0 +1,231 @@
+name: Agent Release
+
+on:
+  repository_dispatch:
+    types:
+      - agent-release
+
+permissions: {}
+
+concurrency:
+  group: agent-release-${{ github.event.client_payload.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      source_commit: ${{ steps.release.outputs.source_commit }}
+      workflow_commit: ${{ steps.release.outputs.workflow_commit }}
+    steps:
+      - name: Require the trusted main-branch workflow
+        env:
+          DISPATCH_ACTOR: ${{ github.actor }}
+          EXPECTED_DISPATCH_ACTOR: ${{ vars.AGENT_RELEASE_DISPATCH_ACTOR }}
+          INVOCATION_REF: ${{ github.ref }}
+          INVOCATION_COMMIT: ${{ github.sha }}
+          WORKFLOW_COMMIT: ${{ github.workflow_sha }}
+        run: |
+          test -n "$EXPECTED_DISPATCH_ACTOR"
+          test "$DISPATCH_ACTOR" = "$EXPECTED_DISPATCH_ACTOR"
+          test "$INVOCATION_REF" = refs/heads/main
+          test "$INVOCATION_COMMIT" = "$WORKFLOW_COMMIT"
+      - name: Check out trusted release policy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require active release-tag protection
+        env:
+          CREATOR_ACTOR_ID: ${{ vars.AGENT_RELEASE_CREATOR_ACTOR_ID }}
+          CREATION_RULESET_ID: ${{ vars.AGENT_RELEASE_CREATION_RULESET_ID }}
+          GH_TOKEN: ${{ github.token }}
+          IMMUTABLE_RULESET_ID: ${{ vars.AGENT_RELEASE_IMMUTABLE_RULESET_ID }}
+        run: |
+          [[ "$CREATION_RULESET_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$IMMUTABLE_RULESET_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$CREATOR_ACTOR_ID" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/${GITHUB_REPOSITORY}/rulesets/${CREATION_RULESET_ID}" \
+            >"$RUNNER_TEMP/agent-tag-creation-ruleset.json"
+          gh api "repos/${GITHUB_REPOSITORY}/rulesets/${IMMUTABLE_RULESET_ID}" \
+            >"$RUNNER_TEMP/agent-tag-immutable-ruleset.json"
+          ./scripts/validate-agent-release-ruleset.sh \
+            "$RUNNER_TEMP/agent-tag-creation-ruleset.json" \
+            "$RUNNER_TEMP/agent-tag-immutable-ruleset.json" \
+            "$CREATOR_ACTOR_ID"
+      - name: Resolve a main-branch release source
+        id: release
+        env:
+          RELEASE_TAG: ${{ github.event.client_payload.release_tag }}
+          SOURCE_COMMIT: ${{ github.event.client_payload.source_commit }}
+          WORKFLOW_COMMIT: ${{ github.workflow_sha }}
+        run: |
+          source_commit="$(./scripts/validate-agent-release-ref.sh "$RELEASE_TAG" "$SOURCE_COMMIT")"
+          printf 'source_commit=%s\n' "$source_commit" >>"$GITHUB_OUTPUT"
+          printf 'workflow_commit=%s\n' "$WORKFLOW_COMMIT" >>"$GITHUB_OUTPUT"
+
+  build:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Check out the validated source commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate.outputs.source_commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.6"
+          check-latest: true
+      - name: Test the release policy and builder
+        env:
+          AGENT_RELEASE_REQUIRE_CLEAN: "true"
+        run: make test-agent-release
+      - name: Build the validated agent artifacts
+        env:
+          AGENT_RELEASE_REQUIRE_CLEAN: "true"
+          RELEASE_TAG: ${{ github.event.client_payload.release_tag }}
+        run: ./scripts/build-agent-release.sh "$RELEASE_TAG"
+      - name: Verify release contents and binary identity
+        env:
+          RELEASE_TAG: ${{ github.event.client_payload.release_tag }}
+          SOURCE_COMMIT: ${{ needs.validate.outputs.source_commit }}
+        run: |
+          release_version="${RELEASE_TAG#agent-v}"
+          test "$(find dist/agent-release -maxdepth 1 -type f | wc -l)" = 3
+          for architecture in amd64 arm64; do
+            artifact="dist/agent-release/coderoam-agent_${release_version}_linux_${architecture}"
+            metadata="$(go version -m "$artifact")"
+            grep -Fq "vcs.revision=${SOURCE_COMMIT}" <<<"$metadata"
+            grep -Fq "vcs.modified=false" <<<"$metadata"
+          done
+          expected="coderoam-agent ${release_version} (${SOURCE_COMMIT})"
+          binary="dist/agent-release/coderoam-agent_${release_version}_linux_amd64"
+          test "$("$binary" version)" = "$expected"
+          (cd dist/agent-release && sha256sum --check SHA256SUMS)
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+      - name: Upload immutable build output
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-release-${{ needs.validate.outputs.source_commit }}
+          path: dist/agent-release/*
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  publish:
+    needs:
+      - validate
+      - build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Check out trusted release policy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate.outputs.workflow_commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require an unchanged release source and unused tag
+        env:
+          RELEASE_TAG: ${{ github.event.client_payload.release_tag }}
+          SOURCE_COMMIT: ${{ needs.validate.outputs.source_commit }}
+        run: |
+          current_commit="$(./scripts/validate-agent-release-ref.sh "$RELEASE_TAG" "$SOURCE_COMMIT")"
+          test "$current_commit" = "$SOURCE_COMMIT"
+      - name: Download the immutable build output
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agent-release-${{ needs.validate.outputs.source_commit }}
+          path: release-assets
+      - name: Verify downloaded contents without execution
+        env:
+          RELEASE_TAG: ${{ github.event.client_payload.release_tag }}
+        run: |
+          release_version="${RELEASE_TAG#agent-v}"
+          test "$(find release-assets -mindepth 1 -maxdepth 1 | wc -l)" = 3
+          test "$(find release-assets -mindepth 1 -maxdepth 1 -type f | wc -l)" = 3
+          for architecture in amd64 arm64; do
+            test -f "release-assets/coderoam-agent_${release_version}_linux_${architecture}"
+            test ! -L "release-assets/coderoam-agent_${release_version}_linux_${architecture}"
+          done
+          test -f release-assets/SHA256SUMS
+          test ! -L release-assets/SHA256SUMS
+          (
+            cd release-assets
+            sha256sum \
+              "coderoam-agent_${release_version}_linux_amd64" \
+              "coderoam-agent_${release_version}_linux_arm64" >SHA256SUMS.actual
+            cmp --silent SHA256SUMS.actual SHA256SUMS
+            rm SHA256SUMS.actual
+          )
+      - name: Record the trusted release identity
+        env:
+          RELEASE_TAG: ${{ github.event.client_payload.release_tag }}
+          SOURCE_COMMIT: ${{ needs.validate.outputs.source_commit }}
+          WORKFLOW_COMMIT: ${{ needs.validate.outputs.workflow_commit }}
+          ARTIFACT_DIGEST: ${{ needs.build.outputs.artifact_digest }}
+        run: |
+          [[ "$ARTIFACT_DIGEST" =~ ^[0-9a-f]{64}$ ]]
+          printf '%s\n' \
+            "SOURCE_TAG=$RELEASE_TAG" \
+            "SOURCE_COMMIT=$SOURCE_COMMIT" \
+            "WORKFLOW_COMMIT=$WORKFLOW_COMMIT" \
+            "ARTIFACT_DIGEST=$ARTIFACT_DIGEST" \
+            >release-assets/RELEASE-METADATA
+      - name: Attest release assets
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: release-assets/*
+      - name: Verify exact source and signer provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW_COMMIT: ${{ needs.validate.outputs.workflow_commit }}
+        run: |
+          for artifact in release-assets/*; do
+            gh attestation verify "$artifact" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-agent.yml" \
+              --source-ref refs/heads/main \
+              --source-digest "$WORKFLOW_COMMIT" \
+              --signer-digest "$WORKFLOW_COMMIT"
+          done
+      - name: Publish GitHub Release assets without overwrite
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.client_payload.release_tag }}
+          SOURCE_COMMIT: ${{ needs.validate.outputs.source_commit }}
+        run: |
+          release_version="${RELEASE_TAG#agent-v}"
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f "ref=refs/tags/${RELEASE_TAG}" \
+            -f "sha=${SOURCE_COMMIT}" >/dev/null
+          remote_tag="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}")"
+          test "$(jq -r .object.type <<<"$remote_tag")" = commit
+          test "$(jq -r .object.sha <<<"$remote_tag")" = "$SOURCE_COMMIT"
+          gh release create "$RELEASE_TAG" release-assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --target "$SOURCE_COMMIT" \
+            --generate-notes \
+            --title "CodeRoam Agent ${release_version}"
+          published_tag="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}")"
+          test "$(jq -r .object.type <<<"$published_tag")" = commit
+          test "$(jq -r .object.sha <<<"$published_tag")" = "$SOURCE_COMMIT"

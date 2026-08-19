@@ -275,17 +275,17 @@ compatibility seams rather than delivered as one large file replacement.
 ## Progress
 
 - [x] Inspect the merged M2 implementation, applicable instructions, schemas, contracts, and trust
-  boundaries.
+      boundaries.
 - [x] Define the M3 ExecPlan and create `feat/m3-agent-bootstrap-pairing` from `origin/main`.
 - [x] Implement and test the canonical X25519 fingerprint codec without adding a dependency.
 - [x] Complete the Go-to-native-core XXpsk3 interoperability spike and dependency risk report.
 - [x] Obtain explicit approval for the 256-bit pairing secret, Go Noise implementation, and mobile
-  FFI prototype.
+      FFI prototype.
 - [x] Add a reproducible Go/Rust XXpsk3 success and wrong-PSK interoperability harness.
 - [x] Bundle the approved `snow` core through a host `package_ffi` build hook and invoke a
-  non-secret-bearing Dart ABI probe.
+      non-secret-bearing Dart ABI probe.
 - [x] Compile and bundle the non-secret-bearing Noise ABI probe in unsigned iOS and Android
-  Flutter builds.
+      Flutter builds.
 - [x] Obtain explicit approval for QR and release-attestation dependencies.
 - [ ] Prove the approved native core through Flutter FFI on iOS and Android.
 - [x] Add and regenerate the additive M3 Protobuf contracts.
@@ -293,9 +293,9 @@ compatibility seams rather than delivered as one large file replacement.
 - [x] Implement fail-closed agent identity creation and restoration.
 - [x] Implement fail-closed mobile identity creation and restoration.
 - [x] Replace the starter pairing-attempt table with the bounded M3 state schema and transactional
-  migration coverage.
+      migration coverage.
 - [x] Implement open pairing-attempt domain validation and lock-based repository create/load
-  persistence.
+      persistence.
 - [x] Implement domain-separated bootstrap-credential authentication and bounded failure accounting.
 - [x] Implement the owner-bound mobile claim transition with exact idempotent retries.
 - [x] Implement the OIDC-authenticated mobile channel-binding confirmation transition.
@@ -304,9 +304,9 @@ compatibility seams rather than delivered as one large file replacement.
 - [x] Backfill and constrain device/workspace canonical fingerprints.
 - [x] Implement device-owned and workspace-owned pairing registration boundaries.
 - [x] Persist a separate canonical agent ID on each pairing attempt and atomically register both
-  endpoints while consuming a matching two-sided confirmation.
+      endpoints while consuming a matching two-sided confirmation.
 - [x] Implement device-owned and workspace-owned paired listing boundaries.
-- [ ] Implement signed agent artifact generation and verification documentation.
+- [x] Implement signed agent artifact generation and verification documentation.
 - [ ] Implement bounded agent bootstrap and outbound pairing lifecycle.
 - [ ] Implement pairing-only relay admission, routing, replay, and cleanup.
 - [ ] Implement cross-language XXpsk3 pairing and two-sided confirmation.
@@ -458,6 +458,18 @@ compatibility seams rather than delivered as one large file replacement.
   environment/project. That requires a separate explicit owner-authorized action.
 - 2026-07-24: Ship verifiable Linux agent artifacts with checksums and approved provenance. Keep
   installation non-root and defer self-update.
+- 2026-08-19: Build versioned, static Linux agent binaries only for `amd64` and `arm64` from stable
+  `agent-vX.Y.Z` tags whose commits are already on `main`. Trigger the default-branch workflow with a
+  bounded `repository_dispatch`; validate the authorized dispatcher, a creation-only ruleset with
+  exactly one approved GitHub App bypass, a separate update/delete ruleset with no bypass, the
+  unused tag name, and the exact `main` source commit. Build in an unprivileged job, create the tag
+  only from the trusted publish job, and grant release/OIDC permissions only to attestation and
+  publication. Reject dirty and untracked inputs, pin external actions to immutable commits, and
+  publish exact SHA-256 checksums plus a signed record of the agent source commit and trusted
+  workflow commit. Verification binds the repository, signer workflow, source ref, source digest,
+  and signer digest before a root-owned binary is executed by a dedicated non-root account. Never
+  overwrite an existing release, move or delete a release tag, add autonomous update, or treat the
+  current starter runtime as production-ready.
 
 ## Validation
 
@@ -485,8 +497,9 @@ coverage includes:
 - mobile tests for secure-storage restoration, logout, biometric/platform failure where applicable,
   QR/manual parser bounds, retry states, cancellation, and no native-platform-view construction in
   ordinary unit tests;
-- release tests for `linux/amd64` and `linux/arm64`, checksum verification, provenance verification,
-  immutable action pins, and a non-root smoke install;
+- release tests for `linux/amd64` and `linux/arm64`, clean-input enforcement, branch-only source
+  rejection, checksum and exact-digest provenance verification, immutable action pins, and a
+  non-root smoke install;
 - race detector and focused fuzz/property tests for parsers, tickets, state machines, and frame
   boundaries;
 - infrastructure smoke with PostgreSQL, Redis, control plane, relay, agent, and authenticated mobile
@@ -540,9 +553,12 @@ an iPhone-only run.
 
 - The approved native mobile Noise core now builds for iOS and Android, but secret-bearing handles,
   zeroization, panic containment, cancellation, and physical-device behavior still need proof.
-- Camera scanning/rendering and release provenance will add dependencies or external GitHub
-  actions. Their exact packages and immutable versions still require selection, audit, and pinning
-  before implementation.
+- Camera scanning/rendering will add dependencies whose exact packages and immutable versions still
+  require selection, audit, and pinning before implementation. Agent release provenance now uses
+  GitHub's official attestation flow with immutable action pins, but the required
+  release dispatcher, GitHub App actor ID, and two required release-tag rulesets are not yet
+  configured. That setup, the first real tag publication, and external verification remain closure
+  evidence rather than a locally reproducible claim.
 - An unauthenticated bootstrap endpoint and pairing relay route create denial-of-service pressure.
   Rate limits, admission bounds, timeouts, queue caps, and metrics need failure-injection evidence.
 - Keychain/Keystore creation and restoration compile on iOS and Android, but process termination,
