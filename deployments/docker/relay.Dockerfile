@@ -1,4 +1,4 @@
-FROM golang:1.26.5-alpine AS build
+FROM golang:1.26.6-alpine AS build
 WORKDIR /src
 COPY packages/go/ids/go.mod ./packages/go/ids/
 COPY protocol/gen/go/go.mod protocol/gen/go/go.sum ./protocol/gen/go/
