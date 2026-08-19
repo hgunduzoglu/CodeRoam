@@ -86,12 +86,27 @@ func TestRepositoryRegisterPairedIntegration(t *testing.T) {
 	if err := register(retryTx, ownerID, deviceID, "Husam's iPhone", publicKey); err != nil {
 		t.Fatalf("RegisterPaired(committed exact retry) error = %v", err)
 	}
+	if err := repository.RegisterPaired(
+		ctx, retryTx, ownerID, deviceID, "Husam's iPhone", PlatformIOS,
+		publicKey, pairedAt.Add(time.Minute),
+	); err != nil {
+		t.Fatalf("RegisterPaired(existing active device for another pairing) error = %v", err)
+	}
 	var deviceCount int
 	if err := retryTx.QueryRow(ctx, `SELECT count(*) FROM device.devices WHERE id = $1`, deviceID).Scan(&deviceCount); err != nil {
 		t.Fatalf("count paired devices: %v", err)
 	}
 	if deviceCount != 1 {
 		t.Fatalf("paired device count = %d, want 1", deviceCount)
+	}
+	var storedPairedAt time.Time
+	if err := retryTx.QueryRow(
+		ctx, `SELECT paired_at FROM device.devices WHERE id = $1`, deviceID,
+	).Scan(&storedPairedAt); err != nil {
+		t.Fatalf("read preserved device pairing time: %v", err)
+	}
+	if !storedPairedAt.Equal(pairedAt.Truncate(time.Microsecond)) {
+		t.Fatalf("stored paired_at = %v, want first pairing time %v", storedPairedAt, pairedAt)
 	}
 	if err := register(retryTx, ownerID, deviceID, "Renamed iPhone", publicKey); !errors.Is(err, ErrDeviceAccessDenied) {
 		t.Fatalf("RegisterPaired(metadata conflict) error = %v, want ErrDeviceAccessDenied", err)

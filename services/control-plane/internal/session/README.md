@@ -105,3 +105,21 @@ the row lock and credential hash, and commit acknowledgement loss is reconciled 
 pairing ID, credential, and confirmation. Even matching two-sided confirmation grants no ownership,
 registration, relay capability, or reusable credential; atomic consumption and device/workspace
 registration remain a separate M3 slice.
+
+Migration version 3 invalidates incomplete pre-v3 attempts and adds the agent's separate canonical
+opaque ID. The short-lived pairing ID is never repurposed as the durable workspace-agent ID, and a
+malformed or missing agent ID makes the attempt unavailable. `pairingCompletionService.complete`
+requires the exact attempt-bound bootstrap credential after locking the attempt, then calls the
+device-owned and workspace-owned registration boundaries and performs the session-owned
+`consumed` transition in one caller-owned PostgreSQL transaction. Missing or mismatched endpoint
+confirmation, wrong credentials, expiry before consumption, revoked registrations, owner/key/ID
+collisions, or any persistence failure rolls back all three writes. The transaction always locks
+session, then device, then agent, which keeps concurrent exact completion deterministic.
+
+A lost commit acknowledgement is reconciled with the same pairing ID and credential. A canonical
+consumed row remains readable after its attempt expiry and returns its original device ID, agent ID,
+and consumption timestamp without re-registering either endpoint. Exact confirmation retries also
+remain stable after consumption; wrong credentials cannot mutate or exhaust a confirmed or
+consumed attempt. An already-active matching device can pair a different agent without replacing
+its first pairing timestamp, while a changed owner, metadata field, key, fingerprint, or revoked
+row still fails closed.

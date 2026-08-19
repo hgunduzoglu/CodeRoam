@@ -62,6 +62,7 @@ BEGIN;
 SET LOCAL ROLE $runtime_role;
 SELECT id FROM device.devices WHERE false FOR SHARE;
 SELECT id FROM workspace.agents WHERE false FOR SHARE;
+SELECT id FROM session.pairing_attempts WHERE false FOR UPDATE;
 INSERT INTO device.devices (
   id, user_id, name, platform, static_public_key, public_key_fingerprint, paired_at
 ) VALUES (
@@ -135,6 +136,53 @@ INSERT INTO session.sessions (
 SELECT id FROM session.sessions
 WHERE id = '00000000000000000000000000000001'
 FOR SHARE;
+INSERT INTO session.pairing_attempts (
+  id, agent_id, agent_static_public_key, agent_key_fingerprint,
+  agent_display_name, agent_version, protocol_version, relay_region,
+  bootstrap_credential_hash, expires_at, failed_attempt_count, state,
+  created_at, updated_at
+) VALUES (
+  '20000000000000000000000000000001',
+  '20000000000000000000000000000002',
+  decode(repeat('33', 32), 'hex'),
+  'x25519-sha256:' || encode(sha256(decode(repeat('33', 32), 'hex')), 'hex'),
+  'Runtime privilege smoke pairing agent',
+  'smoke',
+  1,
+  'local',
+  decode(repeat('44', 32), 'hex'),
+  now() + interval '5 minutes',
+  0,
+  'open',
+  now(),
+  now()
+);
+UPDATE session.pairing_attempts
+SET state = 'claimed',
+    claimed_user_id = '20000000000000000000000000000003',
+    device_id = '20000000000000000000000000000004',
+    device_display_name = 'Runtime privilege smoke phone',
+    device_platform = 'ios',
+    device_static_public_key = decode(repeat('55', 32), 'hex'),
+    device_key_fingerprint =
+      'x25519-sha256:' || encode(sha256(decode(repeat('55', 32), 'hex')), 'hex'),
+    claimed_at = now(),
+    updated_at = now()
+WHERE id = '20000000000000000000000000000001';
+UPDATE session.pairing_attempts
+SET state = 'confirming',
+    mobile_channel_binding = decode(repeat('66', 32), 'hex'),
+    mobile_confirmed_at = now(),
+    updated_at = now()
+WHERE id = '20000000000000000000000000000001';
+UPDATE session.pairing_attempts
+SET agent_channel_binding = decode(repeat('66', 32), 'hex'),
+    agent_confirmed_at = now(),
+    updated_at = now()
+WHERE id = '20000000000000000000000000000001';
+UPDATE session.pairing_attempts
+SET state = 'consumed', consumed_at = now(), updated_at = now()
+WHERE id = '20000000000000000000000000000001';
 ROLLBACK;
 SQL
 
@@ -161,6 +209,18 @@ SQL
       AND NOT has_column_privilege('$runtime_role', 'workspace.environments', 'user_id', 'UPDATE')
       AND NOT has_column_privilege('$runtime_role', 'workspace.projects', 'root_path', 'UPDATE')
       AND NOT has_column_privilege('$runtime_role', 'session.sessions', 'user_id', 'UPDATE')
+      AND has_column_privilege('$runtime_role', 'session.pairing_attempts', 'id', 'INSERT')
+      AND has_column_privilege('$runtime_role', 'session.pairing_attempts', 'agent_id', 'INSERT')
+      AND has_column_privilege('$runtime_role', 'session.pairing_attempts', 'bootstrap_credential_hash', 'INSERT')
+      AND NOT has_column_privilege('$runtime_role', 'session.pairing_attempts', 'consumed_at', 'INSERT')
+      AND has_column_privilege('$runtime_role', 'session.pairing_attempts', 'consumed_at', 'UPDATE')
+      AND NOT has_column_privilege('$runtime_role', 'session.pairing_attempts', 'agent_id', 'UPDATE')
+      AND NOT has_column_privilege('$runtime_role', 'session.pairing_attempts', 'agent_static_public_key', 'UPDATE')
+      AND NOT has_column_privilege('$runtime_role', 'session.pairing_attempts', 'bootstrap_credential_hash', 'UPDATE')
+      AND NOT has_column_privilege('$runtime_role', 'session.pairing_attempts', 'expires_at', 'UPDATE')
+      AND NOT has_table_privilege('$runtime_role', 'session.pairing_attempts', 'INSERT')
+      AND NOT has_table_privilege('$runtime_role', 'session.pairing_attempts', 'UPDATE')
+      AND NOT has_table_privilege('$runtime_role', 'session.pairing_attempts', 'DELETE')
       AND NOT has_table_privilege('$runtime_role', 'device.devices', 'INSERT')
       AND NOT has_table_privilege('$runtime_role', 'workspace.projects', 'INSERT')
       AND NOT has_table_privilege('$runtime_role', 'session.sessions', 'DELETE')
@@ -183,7 +243,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   POSTGRES_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' ./scripts/migrate.sh
   applied_migrations="$("${compose[@]}" exec -T postgres psql -U postgres -d coderoam -Atc \
     "$migration_ledger_query")"
-  expected_migrations='auth:1,auth:2,device:1,device:2,integration:1,outbox:1,preview:1,runbook:1,session:1,session:2,workspace:1,workspace:2'
+  expected_migrations='auth:1,auth:2,device:1,device:2,integration:1,outbox:1,preview:1,runbook:1,session:1,session:2,session:3,workspace:1,workspace:2'
   if [[ "$applied_migrations" != "$expected_migrations" ]]; then
     echo "unexpected migration ledger: $applied_migrations" >&2
     exit 1
@@ -209,7 +269,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   (cd services/control-plane && \
     POSTGRES_TEST_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' \
       go test -count=1 \
-        -run '^(TestPairingAttemptMigrationIntegration|TestPairingAttemptRepositoryIntegration|TestRepositoryCreateIntegration|TestServiceStartIntegration)$' \
+        -run '^(TestPairingAttemptMigrationIntegration|TestPairingAttemptRepositoryIntegration|TestPairingCompletionIntegration|TestRepositoryCreateIntegration|TestServiceStartIntegration)$' \
         ./internal/session)
   (cd services/control-plane && \
     POSTGRES_TEST_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' \

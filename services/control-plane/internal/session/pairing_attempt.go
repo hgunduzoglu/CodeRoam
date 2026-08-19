@@ -40,12 +40,14 @@ const (
 	pairingAttemptStateOpen       pairingAttemptState = "open"
 	pairingAttemptStateClaimed    pairingAttemptState = "claimed"
 	pairingAttemptStateConfirming pairingAttemptState = "confirming"
+	pairingAttemptStateConsumed   pairingAttemptState = "consumed"
 )
 
 // PairingAttemptSpec contains public candidate metadata and an already domain-separated
 // bootstrap-credential hash. It must never contain the raw bootstrap credential or pairing secret.
 type PairingAttemptSpec struct {
 	ID                      string
+	AgentID                 string
 	AgentPublicKey          cryptox.X25519PublicKey
 	AgentDisplayName        string
 	AgentVersion            string
@@ -58,6 +60,7 @@ type PairingAttemptSpec struct {
 
 type PairingAttempt struct {
 	id                      ids.ID
+	agentID                 ids.ID
 	agentPublicKey          cryptox.X25519PublicKey
 	agentFingerprint        cryptox.X25519Fingerprint
 	agentDisplayName        string
@@ -98,6 +101,10 @@ func NewPairingAttempt(spec PairingAttemptSpec) (PairingAttempt, error) {
 	if err != nil {
 		return PairingAttempt{}, fmt.Errorf("%w: id", ErrInvalidPairingAttempt)
 	}
+	agentID, err := ids.Parse(spec.AgentID)
+	if err != nil {
+		return PairingAttempt{}, fmt.Errorf("%w: agent id", ErrInvalidPairingAttempt)
+	}
 	publicKeyBytes, err := spec.AgentPublicKey.Bytes()
 	if err != nil || allZero(publicKeyBytes) {
 		return PairingAttempt{}, fmt.Errorf("%w: agent public key", ErrInvalidPairingAttempt)
@@ -134,7 +141,7 @@ func NewPairingAttempt(spec PairingAttemptSpec) (PairingAttempt, error) {
 	}
 
 	attempt := PairingAttempt{
-		id: id, agentPublicKey: spec.AgentPublicKey, agentFingerprint: fingerprint,
+		id: id, agentID: agentID, agentPublicKey: spec.AgentPublicKey, agentFingerprint: fingerprint,
 		agentDisplayName: displayName, agentVersion: version,
 		protocolVersion: spec.ProtocolVersion, relayRegion: spec.RelayRegion,
 		state: pairingAttemptStateOpen, createdAt: createdAt, expiresAt: expiresAt, updatedAt: createdAt,
@@ -151,7 +158,7 @@ func (attempt PairingAttempt) validForCreate() bool {
 	hash := make([]byte, pairingAttemptBootstrapHashLen)
 	copy(hash, attempt.bootstrapCredentialHash[:])
 	rebuilt, err := NewPairingAttempt(PairingAttemptSpec{
-		ID: attempt.id.String(), AgentPublicKey: attempt.agentPublicKey,
+		ID: attempt.id.String(), AgentID: attempt.agentID.String(), AgentPublicKey: attempt.agentPublicKey,
 		AgentDisplayName: attempt.agentDisplayName, AgentVersion: attempt.agentVersion,
 		ProtocolVersion: attempt.protocolVersion, RelayRegion: attempt.relayRegion,
 		BootstrapCredentialHash: hash, CreatedAt: attempt.createdAt, ExpiresAt: attempt.expiresAt,

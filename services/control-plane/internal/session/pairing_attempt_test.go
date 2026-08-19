@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/hgunduzoglu/coderoam/packages/go/cryptox"
+	"github.com/hgunduzoglu/coderoam/packages/go/ids"
 )
 
 func TestNewPairingAttemptNormalizesAndCopiesBoundedMetadata(t *testing.T) {
@@ -25,7 +26,8 @@ func TestNewPairingAttemptNormalizesAndCopiesBoundedMetadata(t *testing.T) {
 		t.Fatalf("NewPairingAttempt() error = %v", err)
 	}
 	hashInput[0] ^= 0xff
-	if attempt.id.String() != spec.ID || !attempt.agentPublicKey.Equal(spec.AgentPublicKey) ||
+	if attempt.id.String() != spec.ID || attempt.agentID.String() != spec.AgentID ||
+		!attempt.agentPublicKey.Equal(spec.AgentPublicKey) ||
 		!attempt.agentFingerprint.Equal(wantFingerprint) || attempt.agentDisplayName != "M3 agent" ||
 		attempt.agentVersion != "0.1.0" || attempt.protocolVersion != pairingAttemptProtocolVersion ||
 		attempt.relayRegion != "eu-test-1" || !bytes.Equal(attempt.bootstrapCredentialHash[:], wantHash) ||
@@ -91,7 +93,8 @@ func TestHashPairingBootstrapCredentialRejectsInvalidInput(t *testing.T) {
 
 func TestNewPairingAttemptRejectsInvalidBoundaries(t *testing.T) {
 	tests := map[string]func(*PairingAttemptSpec){
-		"invalid id": func(spec *PairingAttemptSpec) { spec.ID = "invalid" },
+		"invalid id":       func(spec *PairingAttemptSpec) { spec.ID = "invalid" },
+		"invalid agent id": func(spec *PairingAttemptSpec) { spec.AgentID = "invalid" },
 		"missing public key": func(spec *PairingAttemptSpec) {
 			spec.AgentPublicKey = cryptox.X25519PublicKey{}
 		},
@@ -170,6 +173,7 @@ func TestPairingAttemptValidForCreateFailsClosed(t *testing.T) {
 	}
 
 	tests := map[string]func(*PairingAttempt){
+		"missing agent id": func(attempt *PairingAttempt) { attempt.agentID = ids.ID{} },
 		"changed fingerprint": func(attempt *PairingAttempt) {
 			attempt.agentFingerprint = cryptox.X25519Fingerprint{}
 		},
@@ -210,7 +214,7 @@ func validPairingAttemptSpec(t *testing.T) PairingAttemptSpec {
 		t.Fatalf("HashPairingBootstrapCredential(fixture) error = %v", err)
 	}
 	return PairingAttemptSpec{
-		ID: id, AgentPublicKey: publicKey,
+		ID: id, AgentID: strings.Repeat("b", 32), AgentPublicKey: publicKey,
 		AgentDisplayName: "  M3 agent  ", AgentVersion: "  0.1.0  ",
 		ProtocolVersion: pairingAttemptProtocolVersion, RelayRegion: "eu-test-1",
 		BootstrapCredentialHash: hash[:],

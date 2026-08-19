@@ -314,6 +314,10 @@ func applySessionServiceIntegrationMigrations(
 			scope: "session", version: 2, name: "pairing_attempt_state",
 			path: "migrations/000002_pairing_attempt_state.sql",
 		},
+		{
+			scope: "session", version: 3, name: "pairing_agent_id",
+			path: "migrations/000003_pairing_agent_id.sql",
+		},
 	}
 	for _, file := range files {
 		sql, err := os.ReadFile(file.path)

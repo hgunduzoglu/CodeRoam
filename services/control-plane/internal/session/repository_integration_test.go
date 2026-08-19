@@ -181,6 +181,7 @@ func readSessionIntegrationMigrations(t *testing.T) []postgresx.Migration {
 	}{
 		{version: 1, name: "init", path: "migrations/000001_init.sql"},
 		{version: 2, name: "pairing_attempt_state", path: "migrations/000002_pairing_attempt_state.sql"},
+		{version: 3, name: "pairing_agent_id", path: "migrations/000003_pairing_agent_id.sql"},
 	}
 	migrations := make([]postgresx.Migration, 0, len(files))
 	for _, file := range files {

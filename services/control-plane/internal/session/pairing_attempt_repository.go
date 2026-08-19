@@ -52,11 +52,11 @@ func (repository *Repository) CreatePairingAttempt(
 	}
 	result, err := tx.Exec(operationCtx, `
 		INSERT INTO session.pairing_attempts (
-			id, agent_static_public_key, agent_key_fingerprint, agent_display_name,
+			id, agent_id, agent_static_public_key, agent_key_fingerprint, agent_display_name,
 			agent_version, protocol_version, relay_region, bootstrap_credential_hash,
 			expires_at, failed_attempt_count, state, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-		attempt.id.String(), publicKey, fingerprint, attempt.agentDisplayName,
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+		attempt.id.String(), attempt.agentID.String(), publicKey, fingerprint, attempt.agentDisplayName,
 		attempt.agentVersion, attempt.protocolVersion, attempt.relayRegion,
 		attempt.bootstrapCredentialHash[:], attempt.expiresAt, attempt.failedAttemptCount,
 		string(attempt.state), attempt.createdAt, attempt.updatedAt,
@@ -105,11 +105,11 @@ func (repository *Repository) LockOpenPairingAttempt(
 	defer cancelOperation()
 
 	var publicKeyBytes, bootstrapHash []byte
-	var fingerprint, displayName, version, relayRegion string
+	var agentID, fingerprint, displayName, version, relayRegion string
 	var protocolVersion, failedAttemptCount int
 	var expiresAt, createdAt, updatedAt time.Time
 	err = tx.QueryRow(operationCtx, `
-		SELECT agent_static_public_key, agent_key_fingerprint, agent_display_name,
+		SELECT agent_id, agent_static_public_key, agent_key_fingerprint, agent_display_name,
 		       agent_version, protocol_version, relay_region, bootstrap_credential_hash,
 		       expires_at, failed_attempt_count, created_at, updated_at
 		FROM session.pairing_attempts
@@ -125,7 +125,7 @@ func (repository *Repository) LockOpenPairingAttempt(
 		  AND agent_channel_binding IS NULL AND agent_confirmed_at IS NULL
 		  AND consumed_at IS NULL
 		FOR UPDATE`, attemptID.String(), checkedAt, maxPairingAttemptFailures).Scan(
-		&publicKeyBytes, &fingerprint, &displayName, &version, &protocolVersion,
+		&agentID, &publicKeyBytes, &fingerprint, &displayName, &version, &protocolVersion,
 		&relayRegion, &bootstrapHash, &expiresAt, &failedAttemptCount, &createdAt, &updatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -144,7 +144,7 @@ func (repository *Repository) LockOpenPairingAttempt(
 		return PairingAttempt{}, ErrPairingAttemptUnavailable
 	}
 	attempt, err := NewPairingAttempt(PairingAttemptSpec{
-		ID: attemptID.String(), AgentPublicKey: publicKey,
+		ID: attemptID.String(), AgentID: agentID, AgentPublicKey: publicKey,
 		AgentDisplayName: displayName, AgentVersion: version,
 		ProtocolVersion: protocolVersion, RelayRegion: relayRegion,
 		BootstrapCredentialHash: bootstrapHash, CreatedAt: createdAt, ExpiresAt: expiresAt,
@@ -313,6 +313,7 @@ type lockedClaimedPairingAttempt struct {
 	mobileConfirmedAt time.Time
 	agentBinding      [pairingChannelBindingLen]byte
 	agentConfirmedAt  time.Time
+	consumedAt        time.Time
 	hasMobileBinding  bool
 	hasAgentBinding   bool
 }
@@ -357,31 +358,34 @@ func (repository *Repository) lockClaimedPairingAttempt(
 	defer cancelOperation()
 
 	var agentPublicKey, bootstrapHash, devicePublicKey, mobileBinding, agentBinding []byte
-	var agentFingerprint, agentDisplayName, agentVersion, relayRegion, state string
+	var agentID, agentFingerprint, agentDisplayName, agentVersion, relayRegion, state string
 	var claimedUserID, deviceID, deviceDisplayName, devicePlatform, deviceFingerprint pgtype.Text
 	var protocolVersion, failedAttemptCount int
 	var expiresAt, createdAt, updatedAt time.Time
-	var claimedAt, mobileConfirmedAt, agentConfirmedAt pgtype.Timestamptz
+	var claimedAt, mobileConfirmedAt, agentConfirmedAt, consumedAt pgtype.Timestamptz
 	err = tx.QueryRow(operationCtx, `
-		SELECT agent_static_public_key, agent_key_fingerprint, agent_display_name,
+		SELECT agent_id, agent_static_public_key, agent_key_fingerprint, agent_display_name,
 		       agent_version, protocol_version, relay_region, bootstrap_credential_hash,
 		       expires_at, failed_attempt_count, state, created_at, updated_at,
 		       claimed_user_id, device_id, device_display_name, device_platform,
 		       device_static_public_key, device_key_fingerprint, claimed_at,
 		       mobile_channel_binding, mobile_confirmed_at,
-		       agent_channel_binding, agent_confirmed_at
+		       agent_channel_binding, agent_confirmed_at, consumed_at
 		FROM session.pairing_attempts
 		WHERE id = $1
-		  AND state IN ('claimed', 'confirming')
-		  AND created_at <= $2 AND updated_at <= $2 AND expires_at > $2
+		  AND state IN ('claimed', 'confirming', 'consumed')
+		  AND created_at <= $2 AND updated_at <= $2
 		  AND failed_attempt_count < $3
-		  AND consumed_at IS NULL
+		  AND (
+		    (state IN ('claimed', 'confirming') AND expires_at > $2 AND consumed_at IS NULL)
+		    OR (state = 'consumed' AND consumed_at IS NOT NULL AND consumed_at <= $2)
+		  )
 		FOR UPDATE`, attemptID.String(), checkedAt, maxPairingAttemptFailures).Scan(
-		&agentPublicKey, &agentFingerprint, &agentDisplayName, &agentVersion,
+		&agentID, &agentPublicKey, &agentFingerprint, &agentDisplayName, &agentVersion,
 		&protocolVersion, &relayRegion, &bootstrapHash, &expiresAt, &failedAttemptCount,
 		&state, &createdAt, &updatedAt, &claimedUserID, &deviceID, &deviceDisplayName,
 		&devicePlatform, &devicePublicKey, &deviceFingerprint, &claimedAt,
-		&mobileBinding, &mobileConfirmedAt, &agentBinding, &agentConfirmedAt,
+		&mobileBinding, &mobileConfirmedAt, &agentBinding, &agentConfirmedAt, &consumedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return lockedClaimedPairingAttempt{}, ErrPairingAttemptUnavailable
@@ -395,7 +399,8 @@ func (repository *Repository) lockClaimedPairingAttempt(
 	}
 	lockedAt := repository.now().UTC()
 	if lockedAt.IsZero() || lockedAt.Before(checkedAt) || createdAt.After(lockedAt) ||
-		updatedAt.After(lockedAt) || !expiresAt.After(lockedAt) {
+		updatedAt.After(lockedAt) ||
+		(state != string(pairingAttemptStateConsumed) && !expiresAt.After(lockedAt)) {
 		return lockedClaimedPairingAttempt{}, ErrPairingAttemptUnavailable
 	}
 
@@ -404,7 +409,7 @@ func (repository *Repository) lockClaimedPairingAttempt(
 		return lockedClaimedPairingAttempt{}, ErrPairingAttemptUnavailable
 	}
 	attempt, err := NewPairingAttempt(PairingAttemptSpec{
-		ID: attemptID.String(), AgentPublicKey: storedAgentKey,
+		ID: attemptID.String(), AgentID: agentID, AgentPublicKey: storedAgentKey,
 		AgentDisplayName: agentDisplayName, AgentVersion: agentVersion,
 		ProtocolVersion: protocolVersion, RelayRegion: relayRegion,
 		BootstrapCredentialHash: bootstrapHash, CreatedAt: createdAt, ExpiresAt: expiresAt,
@@ -496,17 +501,31 @@ func (repository *Repository) lockClaimedPairingAttempt(
 			attempt.updatedAt.Before(locked.agentConfirmedAt)) {
 		return lockedClaimedPairingAttempt{}, ErrPairingAttemptUnavailable
 	}
+	if consumedAt.Valid {
+		locked.consumedAt = consumedAt.Time.UTC()
+		if locked.consumedAt.Before(locked.mobileConfirmedAt) ||
+			locked.consumedAt.Before(locked.agentConfirmedAt) ||
+			locked.consumedAt.After(attempt.expiresAt) ||
+			!attempt.updatedAt.Equal(locked.consumedAt) {
+			return lockedClaimedPairingAttempt{}, ErrPairingAttemptUnavailable
+		}
+	}
 	if locked.hasMobileBinding && locked.hasAgentBinding &&
 		subtle.ConstantTimeCompare(locked.mobileBinding[:], locked.agentBinding[:]) != 1 {
 		return lockedClaimedPairingAttempt{}, ErrPairingAttemptUnavailable
 	}
 	if attempt.state == pairingAttemptStateClaimed {
 		if locked.hasMobileBinding || locked.hasAgentBinding ||
+			consumedAt.Valid ||
 			(attempt.failedAttemptCount == 0 && !attempt.updatedAt.Equal(locked.claimedAt)) {
 			return lockedClaimedPairingAttempt{}, ErrPairingAttemptUnavailable
 		}
-	} else if attempt.state != pairingAttemptStateConfirming ||
-		(!locked.hasMobileBinding && !locked.hasAgentBinding) {
+	} else if attempt.state == pairingAttemptStateConfirming {
+		if (!locked.hasMobileBinding && !locked.hasAgentBinding) || consumedAt.Valid {
+			return lockedClaimedPairingAttempt{}, ErrPairingAttemptUnavailable
+		}
+	} else if attempt.state != pairingAttemptStateConsumed ||
+		!locked.hasMobileBinding || !locked.hasAgentBinding || !consumedAt.Valid {
 		return lockedClaimedPairingAttempt{}, ErrPairingAttemptUnavailable
 	}
 	return locked, nil
@@ -621,7 +640,8 @@ func (repository *Repository) confirmAgentPairingAttempt(
 	if authenticatedAt.IsZero() || authenticatedAt.Before(locked.attempt.lockedAt) {
 		return false, ErrPairingAttemptPersistenceUnavailable
 	}
-	if !locked.attempt.expiresAt.After(authenticatedAt) {
+	if locked.attempt.state != pairingAttemptStateConsumed &&
+		!locked.attempt.expiresAt.After(authenticatedAt) {
 		return false, ErrPairingAttemptUnavailable
 	}
 

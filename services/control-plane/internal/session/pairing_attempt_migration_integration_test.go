@@ -111,6 +111,10 @@ func TestPairingAttemptMigrationIntegration(t *testing.T) {
 		mutate     func(*pairingAttemptMigrationRow)
 	}{
 		{
+			name: "invalid agent id", constraint: "pairing_attempts_agent_id_shape",
+			mutate: func(row *pairingAttemptMigrationRow) { row.agentID = "invalid" },
+		},
+		{
 			name: "short agent key", constraint: "pairing_attempts_agent_key_length",
 			mutate: func(row *pairingAttemptMigrationRow) { row.agentPublicKey = bytes.Repeat([]byte{1}, 31) },
 		},
@@ -140,6 +144,7 @@ func TestPairingAttemptMigrationIntegration(t *testing.T) {
 	fixtureIDs := []string{
 		strings.Repeat("b", 32), strings.Repeat("c", 32), strings.Repeat("d", 32),
 		strings.Repeat("e", 32), strings.Repeat("f", 32), strings.Repeat("0", 32),
+		strings.Repeat("9", 32),
 	}
 	for index, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -229,6 +234,7 @@ func assertPairingAttemptMigrationAllowsValidLifecycle(
 
 type pairingAttemptMigrationRow struct {
 	id                 string
+	agentID            string
 	agentPublicKey     []byte
 	agentFingerprint   string
 	agentDisplayName   string
@@ -245,7 +251,7 @@ type pairingAttemptMigrationRow struct {
 
 func newPairingAttemptMigrationRow(id string, createdAt time.Time) pairingAttemptMigrationRow {
 	return pairingAttemptMigrationRow{
-		id: id, agentPublicKey: bytes.Repeat([]byte{0x42}, 32),
+		id: id, agentID: strings.Repeat("8", 32), agentPublicKey: bytes.Repeat([]byte{0x42}, 32),
 		agentFingerprint: "x25519-sha256:" + strings.Repeat("1", 64),
 		agentDisplayName: "M3 agent", agentVersion: "0.1.0", protocolVersion: 1,
 		relayRegion: "eu-test-1", bootstrapHash: bytes.Repeat([]byte{0x24}, 32),
@@ -261,11 +267,11 @@ func insertPairingAttemptMigrationRow(
 ) error {
 	_, err := conn.Exec(ctx, `
 		INSERT INTO session_pairing_migration_test.pairing_attempts (
-			id, agent_static_public_key, agent_key_fingerprint, agent_display_name,
+			id, agent_id, agent_static_public_key, agent_key_fingerprint, agent_display_name,
 			agent_version, protocol_version, relay_region, bootstrap_credential_hash,
 			expires_at, failed_attempt_count, state, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-		row.id, row.agentPublicKey, row.agentFingerprint, row.agentDisplayName,
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+		row.id, row.agentID, row.agentPublicKey, row.agentFingerprint, row.agentDisplayName,
 		row.agentVersion, row.protocolVersion, row.relayRegion, row.bootstrapHash,
 		row.expiresAt, row.failedAttemptCount, row.state, row.createdAt, row.updatedAt,
 	)
@@ -299,7 +305,7 @@ func assertPairingAttemptMigrationStoresNoSecret(t *testing.T, ctx context.Conte
 func assertPairingAttemptMigrationRollsBack(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 	t.Helper()
 	failing := postgresx.Migration{
-		Scope: "session_pairing_migration_test", Version: 3, Name: "rollback_probe",
+		Scope: "session_pairing_migration_test", Version: 4, Name: "rollback_probe",
 		SQL: `
 			ALTER TABLE session_pairing_migration_test.pairing_attempts
 			  ADD COLUMN rollback_probe text;
@@ -321,7 +327,7 @@ func assertPairingAttemptMigrationRollsBack(t *testing.T, ctx context.Context, c
 	if err := conn.QueryRow(ctx, `
 		SELECT count(*)
 		FROM coderoam_meta.schema_migrations
-		WHERE scope = 'session_pairing_migration_test' AND version = 3`).Scan(&ledgerCount); err != nil {
+		WHERE scope = 'session_pairing_migration_test' AND version = 4`).Scan(&ledgerCount); err != nil {
 		t.Fatalf("inspect rolled-back pairing-attempt ledger: %v", err)
 	}
 	if columnCount != 0 || ledgerCount != 0 {

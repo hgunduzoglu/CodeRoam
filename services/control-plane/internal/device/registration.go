@@ -13,6 +13,7 @@ import (
 
 // RegisterPaired persists a pairing-authenticated device in a caller-owned transaction.
 // Existing rows are accepted only when the complete active identity is unchanged.
+// The first pairing timestamp remains authoritative when that device pairs another agent.
 func (repository *Repository) RegisterPaired(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -116,7 +117,7 @@ func (repository *Repository) RegisterPaired(
 		matched = storedID == device.id && storedOwnerID == device.ownerID.String() &&
 			storedName == device.name && storedPlatform == string(device.platform) &&
 			bytes.Equal(storedPublicKey, publicKeyBytes) && storedFingerprint == encodedFingerprint &&
-			storedPairedAt.Equal(device.pairedAt) && revokedAt == nil
+			!storedPairedAt.IsZero() && !storedPairedAt.After(checkedAt) && revokedAt == nil
 	}
 	if err := rows.Err(); err != nil {
 		return persistenceError("iterate conflicting paired devices", err)

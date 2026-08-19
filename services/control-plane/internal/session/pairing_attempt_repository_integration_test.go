@@ -1553,12 +1553,12 @@ func assertStoredPairingAttempt(
 ) {
 	t.Helper()
 	var publicKey, bootstrapHash []byte
-	var fingerprint, displayName, version, relayRegion, state string
+	var agentID, fingerprint, displayName, version, relayRegion, state string
 	var protocolVersion, failedAttemptCount int
 	var expiresAt, createdAt, updatedAt time.Time
 	var hasNoClaimOrConfirmation bool
 	if err := reader.QueryRow(ctx, `
-		SELECT agent_static_public_key, agent_key_fingerprint, agent_display_name,
+		SELECT agent_id, agent_static_public_key, agent_key_fingerprint, agent_display_name,
 		       agent_version, protocol_version, relay_region, bootstrap_credential_hash,
 		       expires_at, failed_attempt_count, state, created_at, updated_at,
 		       claimed_user_id IS NULL AND device_id IS NULL
@@ -1568,7 +1568,7 @@ func assertStoredPairingAttempt(
 		         AND mobile_confirmed_at IS NULL AND agent_channel_binding IS NULL
 		         AND agent_confirmed_at IS NULL AND consumed_at IS NULL
 		FROM session.pairing_attempts WHERE id = $1`, want.id.String()).Scan(
-		&publicKey, &fingerprint, &displayName, &version, &protocolVersion, &relayRegion,
+		&agentID, &publicKey, &fingerprint, &displayName, &version, &protocolVersion, &relayRegion,
 		&bootstrapHash, &expiresAt, &failedAttemptCount, &state, &createdAt, &updatedAt,
 		&hasNoClaimOrConfirmation,
 	); err != nil {
@@ -1582,7 +1582,8 @@ func assertStoredPairingAttempt(
 	if err != nil {
 		t.Fatalf("read wanted pairing fingerprint: %v", err)
 	}
-	if !bytes.Equal(publicKey, wantPublicKey) || fingerprint != wantFingerprint ||
+	if agentID != want.agentID.String() || !bytes.Equal(publicKey, wantPublicKey) ||
+		fingerprint != wantFingerprint ||
 		displayName != want.agentDisplayName || version != want.agentVersion ||
 		protocolVersion != want.protocolVersion || relayRegion != want.relayRegion ||
 		!bytes.Equal(bootstrapHash, want.bootstrapCredentialHash[:]) || !expiresAt.Equal(want.expiresAt) ||

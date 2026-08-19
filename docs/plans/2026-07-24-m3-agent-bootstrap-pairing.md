@@ -303,13 +303,15 @@ compatibility seams rather than delivered as one large file replacement.
 - [x] Implement claim/confirmation state transitions.
 - [x] Backfill and constrain device/workspace canonical fingerprints.
 - [x] Implement device-owned and workspace-owned pairing registration boundaries.
+- [x] Persist a separate canonical agent ID on each pairing attempt and atomically register both
+  endpoints while consuming a matching two-sided confirmation.
 - [ ] Implement device-owned and workspace-owned paired listing boundaries.
 - [ ] Implement signed agent artifact generation and verification documentation.
 - [ ] Implement bounded agent bootstrap and outbound pairing lifecycle.
 - [ ] Implement pairing-only relay admission, routing, replay, and cleanup.
 - [ ] Implement cross-language XXpsk3 pairing and two-sided confirmation.
 - [ ] Implement Flutter QR/manual pairing and retry/reconciliation UX.
-- [ ] Complete atomic registration and revocation behavior.
+- [ ] Complete paired endpoint revocation behavior.
 - [ ] Remove the required M2 build-time device selector after compatibility verification.
 - [ ] Run adversarial security review and address actionable findings.
 - [ ] Pass the full repository, infrastructure, release, and physical-device acceptance gates.
@@ -430,6 +432,15 @@ compatibility seams rather than delivered as one large file replacement.
   changed identity, key collision, or revoked row fails closed. Grant the runtime role column-level
   insert access only to the registration fields; atomic session-owned attempt consumption and
   paired endpoint listing remain separate slices.
+- 2026-08-19: Keep the durable agent ID distinct from the short-lived pairing ID. Invalidate
+  incomplete pre-v3 attempts because they cannot be upgraded without inventing trusted identity,
+  then require a canonical agent ID on every new attempt. Final completion re-authenticates the
+  attempt-bound agent bootstrap credential after locking matching two-sided confirmations, calls
+  device and workspace registration in that order, and marks the attempt consumed in the same
+  transaction. A consumed row reconciles the exact result after expiry without re-registration;
+  wrong credentials, missing confirmation, revocation, and identity collisions create no partial
+  ownership. Preserve an active matching device's original pairing timestamp when it pairs another
+  agent rather than treating the new completion time as an identity change.
 - 2026-07-24: Sign exact pairing ticket claims with Ed25519 and separate pairing purpose from future
   session purpose. Keep signing material only in the control plane and verification keys in the
   relay; keep ticket/replay state short-lived and metadata-only.
