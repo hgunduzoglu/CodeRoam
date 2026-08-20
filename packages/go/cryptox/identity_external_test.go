@@ -13,3 +13,10 @@ func TestX25519PublicKeyZeroValueCannotBeEncoded(t *testing.T) {
 		t.Fatalf("Bytes() error = %v, want %v", err, cryptox.ErrInvalidPublicKey)
 	}
 }
+
+func TestX25519FingerprintZeroValueCannotBeEncoded(t *testing.T) {
+	var fingerprint cryptox.X25519Fingerprint
+	if _, err := fingerprint.String(); !errors.Is(err, cryptox.ErrInvalidFingerprint) {
+		t.Fatalf("String() error = %v, want %v", err, cryptox.ErrInvalidFingerprint)
+	}
+}

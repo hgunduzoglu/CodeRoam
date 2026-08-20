@@ -52,6 +52,21 @@ func NewAgent(
 	if !ok {
 		return Agent{}, ErrAgentAccessDenied
 	}
+	return newAgentForOwner(ownerID, encodedID, name, publicKey, version, createdAt)
+}
+
+func newAgentForOwner(
+	ownerID auth.UserID,
+	encodedID string,
+	name string,
+	publicKey cryptox.X25519PublicKey,
+	version string,
+	createdAt time.Time,
+) (Agent, error) {
+	parsedOwnerID, err := auth.ParseUserID(ownerID.String())
+	if err != nil || parsedOwnerID != ownerID {
+		return Agent{}, ErrAgentAccessDenied
+	}
 	agentID, err := ids.Parse(encodedID)
 	if err != nil {
 		return Agent{}, fmt.Errorf("%w: id", ErrInvalidAgent)

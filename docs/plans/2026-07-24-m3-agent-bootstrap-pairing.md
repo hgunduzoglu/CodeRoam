@@ -1,0 +1,589 @@
+# Milestone 3 Agent Bootstrap and Pairing
+
+## Objective
+
+Implement the first production-shaped trust establishment path between a signed CodeRoam agent and
+an authenticated mobile device. M3 must create and persist stable X25519 identities, complete a
+bounded Noise XXpsk3 pairing over an opaque pairing-only relay route, pin the recovered peer keys,
+register both endpoints to one owner, and make revocation observable and enforceable.
+
+M3 is complete only when a user can install a verifiable Linux agent artifact, start a one-use
+pairing attempt, scan or manually enter the high-entropy secret on an authenticated iPhone, observe
+the same pinned identities on both endpoints, restart both endpoints without identity replacement,
+and revoke either endpoint so later authorization fails closed.
+
+## Scope
+
+This plan covers:
+
+- signed Linux agent artifacts and documented provenance verification;
+- explicit first-run agent and mobile X25519 identity creation with fail-closed restoration;
+- one canonical public-key fingerprint encoding across Go, Dart, SQL, Protobuf, and UI;
+- short-lived control-plane pairing attempts and purpose-bound relay tickets;
+- a pairing-only TLS WebSocket route whose payloads remain opaque to the relay;
+- cross-language `Noise_XXpsk3_25519_ChaChaPoly_BLAKE2s` handshakes;
+- two-sided confirmation and atomic single-owner device/agent registration;
+- minimal paired-device and paired-agent listing and revocation surfaces;
+- removal of the M2 build-time device selector after paired identity restoration is proven;
+- migrations, compatibility, negative tests, failure injection, operational docs, and physical
+  iPhone acceptance.
+
+M3 does not implement normal IK sessions, reusable session tickets, multiplexed editor/terminal/LSP
+channels, reconnect/resume, filesystem or process operations, managed compute, organizations,
+automatic environment/project reassignment, agent self-update, or application engineering
+payloads. Those boundaries remain assigned to M4 or later milestones.
+
+## Current state
+
+- M0, M1, and M2 are merged. M2 provides OIDC-authenticated single-owner users, devices, agents,
+  environments, projects, metadata-only sessions, revocation primitives, and transactional outbox
+  processing.
+- The mobile app still receives a pre-registered `CODEROAM_DEVICE_ID` at build time. M3 must replace
+  that selector with the restored paired device identity, without weakening M2 authorization during
+  the rollout.
+- The device and workspace tables already store 32-byte X25519 public keys and textual
+  fingerprints. Their repositories authorize and revoke persisted rows, but registration, listing,
+  and canonical fingerprint enforcement were intentionally deferred to M3.
+- `session.pairing_attempts` is only a starter table. It has no owner claim, bootstrap credential,
+  endpoint confirmation, or state-machine data and stores no pairing secret.
+- The pairing Protobuf already carries a pairing ID, agent public key, fingerprint, pairing secret,
+  protocol version, expiry, and completion keys. Relay ticket and common encrypted-frame messages
+  also exist, but M3 must evolve them additively and define their security semantics before use.
+- `packages/go/cryptox` validates 32-byte X25519 public keys and exposes an identity-provider
+  boundary. Private identity persistence and canonical fingerprints are not implemented.
+- The agent `pair` command currently prints placeholder material, and the agent runtime has no
+  persistent identity or outbound pairing lifecycle.
+- The relay exposes health behavior while its connection route remains a starter. It does not yet
+  verify CodeRoam tickets, enforce route roles, or forward bounded opaque pairing frames.
+- Flutter already has secure storage, native OIDC, cryptography, and WebSocket dependencies. No
+  Noise or QR runtime dependency is approved for M3 yet.
+- An M2 environment/project can reference the preseeded M2 agent. Pairing a new agent must not
+  silently rebind that existing environment or project.
+
+## Design
+
+### Trust boundaries and attacker-controlled data
+
+The authenticated user controls the mobile initiation. The control plane is authoritative for the
+account-to-device and account-to-agent ownership records and for one-use attempt state. The relay is
+trusted to enforce signed ticket metadata and bounds, but it is not trusted with the pairing secret,
+Noise plaintext, or either private identity. The agent and mobile trust a peer only after the
+XXpsk3 transcript proves knowledge of the one-use secret and yields the exact expected static public
+key.
+
+Attacker-controlled inputs include QR/manual text, pairing identifiers, public keys, fingerprints,
+protocol versions, endpoint metadata, tickets, WebSocket frames, ordering, timing, reconnects, and
+duplicate confirmation requests. Every boundary must reject unknown fields where ambiguity is
+unsafe, enforce exact byte and text limits before allocation, use fixed deadlines, and return
+credential-free errors. Pairing secrets, bootstrap credentials, private keys, OIDC tokens, Noise
+payloads, and transcript material must never enter logs.
+
+### Identity and canonical fingerprints
+
+Agent and mobile identities use X25519 static key pairs. First creation is an explicit lifecycle
+operation. Agent private material is written atomically with owner-only permissions and the agent
+runs as a non-root user. Mobile private material is stored through Keychain/Keystore-backed secure
+storage. A missing, truncated, malformed, or permission-invalid identity after initialization fails
+closed; neither endpoint silently regenerates or replaces a pinned identity. Account logout removes
+account credentials but does not implicitly rotate the device identity.
+
+Fingerprint version 1 is:
+
+```text
+x25519-sha256:<64 lowercase hexadecimal characters>
+```
+
+The hexadecimal value is SHA-256 over the exact 32 raw public-key bytes. All producers compute this
+value locally, all consumers recompute it before comparison, and no submitted fingerprint is
+trusted as an independent fact. Database migrations backfill and constrain the existing columns to
+this representation after a collision and malformed-key preflight.
+
+### Pairing attempt and secret lifecycle
+
+The agent creates a 128-bit random pairing ID and a separate 256-bit random pairing secret. The
+manual representation is unpadded uppercase Base32 and therefore 52 characters; UI groups
+characters for readability but parsing removes only the documented separators. The secret exists
+only in agent memory, the locally rendered QR/manual value, and mobile memory during the attempt.
+It is never submitted to the control plane or relay and is never stored in PostgreSQL, Redis,
+outbox payloads, crash reports, or logs.
+
+The unauthenticated agent bootstrap endpoint accepts only bounded agent metadata, the pairing ID,
+the canonical agent public key/fingerprint, protocol version, and expiry. It is protected by
+per-source and per-key rate limits. The control plane returns:
+
+- a server-generated 256-bit bootstrap credential, of which only a domain-separated hash is
+  persisted;
+- a short-lived, purpose-bound signed agent pairing ticket; and
+- the exact relay region and endpoint.
+
+The attempt expires after approximately five minutes. Relay tickets live no longer than 60 seconds
+and tolerate only a small explicit clock skew. A signed-in mobile claims the public attempt using
+the pairing ID and QR-bound public metadata, registers its candidate device metadata and public key,
+and receives the opposite-role client ticket. The claim does not prove possession of the pairing
+secret; only the subsequent XXpsk3 handshake does.
+
+### Ticket signing and pairing-only relay
+
+The control plane signs exact serialized Protobuf ticket claims with an Ed25519 key held in its
+secret store. Claims include key ID, ticket ID, route ID, purpose, role, endpoint ID, relay region,
+protocol version, issued/not-before/expiry timestamps, and a one-use nonce. `PAIRING` and future
+`SESSION` purposes are distinct and cannot be substituted. Relay deployments pin the current
+verification key and may temporarily accept one previous key during an explicit rotation.
+
+Tickets are sent in an authorization header, never in a URL or log field. The relay validates the
+signature, purpose, region, role, time window, route, and replay nonce before upgrade. Redis holds
+only bounded, expiring replay/routing state; it is not an ownership or durable authorization source.
+
+M3 adds a pairing-only WebSocket path. A route admits exactly one agent and one mobile carrying
+opposite-role tickets for the same pairing attempt. It forwards the three Noise XX messages in the
+fixed direction sequence client-to-agent, agent-to-client, client-to-agent. Frames are opaque binary
+payloads, individually bounded to 4 KiB, and the whole route expires within 30 seconds. A duplicate
+role, extra frame, wrong direction, malformed frame type, slow consumer, oversize message, expired
+ticket, nonce replay, or disconnect closes the route. M3 offers no reconnect or resume; the agent
+starts a fresh attempt with a fresh secret after interruption.
+
+### Noise XXpsk3 and peer binding
+
+The mobile initiates and the agent responds using
+`Noise_XXpsk3_25519_ChaChaPoly_BLAKE2s`. The prologue domain-separates CodeRoam pairing version 1
+and binds the protocol version, pairing ID, canonical agent fingerprint, and endpoint roles.
+Authenticated payloads carry bounded CodeRoam pairing data only. The recovered static keys must
+exactly match the QR-bound agent candidate and the signed-in mobile candidate submitted to the
+control plane.
+
+M3 uses the handshake to establish and confirm pins, then discards the Noise transport cipher
+states. It does not send normal application frames over this route. IK session setup, transport
+nonces, rekeying, channel multiplexing, flow control, replay/resume, and reconnect remain M4
+responsibilities.
+
+An interoperability gate precedes the production implementation. It must run official Noise test
+vectors plus a deterministic Go-to-mobile XXpsk3 transcript, including wrong-PSK, wrong-key,
+wrong-prologue, truncation, order, replay, and oversize failures. The current Dart package candidate
+has limited adoption and does not expose an obvious XXpsk3 convenience path. The preferred
+evaluation is a mature Go Noise implementation paired with a maintained native mobile core through
+Flutter FFI. The 256-bit secret, Go Noise implementation, and mobile FFI prototype are approved for
+evaluation; QR and release-action runtime dependencies still require explicit approval.
+
+### Two-sided confirmation and atomic registration
+
+After the handshake, each endpoint derives the same bounded, domain-separated channel-binding value
+from the completed handshake hash and observed peer identities:
+
+- the authenticated mobile submits its confirmation using OIDC;
+- the agent submits its confirmation using the bootstrap credential.
+
+The session module owns the attempt state and locks one attempt while validating expiry, version,
+claimed owner, expected agent key, device candidate, confirmation values, and replay state. Final
+completion calls narrow device-owned and workspace-owned registration interfaces inside the same
+caller-owned PostgreSQL transaction. Authorization does not use cross-schema SQL. The transaction
+either consumes the attempt and creates both owner-bound registrations or creates neither.
+
+Retries with the same valid confirmation are stable. A missing peer confirmation leaves an expiring
+pending attempt. A mismatch, replay, expired attempt, revoked candidate, foreign owner, or reused
+bootstrap credential fails closed and creates no ownership. Local pins are persisted atomically
+only after the endpoints observe the consumed attempt; an unknown network outcome is reconciled by
+polling the same attempt and never by generating a new local identity.
+
+An already-active device may pair another agent for the same owner only when its device ID, public
+key, and canonical fingerprint all match the persisted row. A fingerprint or key collision is a
+hard failure. A registered agent identity cannot move between owners. Revocation is irreversible
+for that registration and never revives a row; re-pairing a revoked physical endpoint requires an
+explicit new identity and registration.
+
+### Persistence ownership and migrations
+
+Each schema remains single-writer:
+
+- `session` owns the pairing attempt, claim, bootstrap-credential hash, confirmation state, and
+  consumption transition;
+- `device` owns mobile identity registration, listing, and revocation;
+- `workspace` owns agent identity registration, listing, and revocation;
+- `auth` remains the only owner of OIDC-to-user identity;
+- `outbox` remains the only writer of durable external-side-effect records.
+
+The session migration adds the canonical agent candidate, bounded metadata, protocol version,
+bootstrap-credential hash, claimed user/device candidate, endpoint confirmations, timestamps, and
+explicit state needed by the attempt transition. It stores no pairing secret or Noise plaintext.
+Device and workspace migrations backfill canonical fingerprints from the existing raw public keys,
+preflight duplicates, and add equality/shape constraints. There are no cross-schema foreign keys.
+Migrations are transactional and forward-compatible with the merged M2 binaries, which do not make
+trust decisions from the fingerprint text.
+
+Pairing completion does not require a durable external notification because both endpoints can
+reconcile the consumed attempt. Existing revocation outbox events remain metadata-only. Expiry is an
+authorization rule enforced on every access; physical cleanup may be lazy or scheduled through an
+owner-approved path without turning the worker into a second schema writer.
+
+### Mobile and agent lifecycle
+
+The agent command explicitly initializes or loads its identity, creates one bounded attempt, renders
+QR and manual material locally, connects outbound to the selected relay, completes XXpsk3, confirms
+the attempt, persists the mobile pin after consumption, and exits or enters its future runtime
+state. Signals, deadline expiry, and network failures erase in-memory secret material and close the
+attempt without replacing the identity.
+
+Flutter restores the stable device identity before authenticated project loading. The pairing
+surface supports camera scanning and manual entry, displays the agent name and canonical
+fingerprint for confirmation, rejects malformed/expired/unsupported payloads locally, performs the
+pairing lifecycle, and stores the agent pin only after consumed status. Paired device/agent lists
+show identity and revocation state without displaying secrets.
+
+Once paired identity restoration and rollback compatibility are proven, the app stops requiring
+`CODEROAM_DEVICE_ID`. During rollout, the old M2 selector may remain as a temporary compatibility
+path but cannot override a conflicting paired identity.
+
+Pairing a new agent creates an owner-bound agent registration only. It does not automatically
+reassign the preseeded M2 environment/project. Environment attachment remains an explicit,
+authorized action or controlled test fixture until its owning API is approved.
+
+### Signed agent distribution
+
+CI builds non-root Linux agent binaries for at least `linux/amd64` and `linux/arm64`, publishes
+checksums, and attaches verifiable build provenance using an approved GitHub artifact-attestation
+or Sigstore flow. External actions are pinned to immutable commit SHAs. Installation documentation
+verifies the artifact before placing it under a dedicated OS user with owner-only identity storage.
+M3 does not add autonomous update, privileged installation, or production runbook execution.
+
+## Milestones
+
+1. Freeze fingerprint, identifiers, expiry, size, and ordering rules; complete the cross-language
+   XXpsk3 interoperability and dependency evaluation; obtain explicit dependency approval.
+2. Evolve Protobuf contracts additively and implement purpose-bound Ed25519 ticket signing and
+   verification with compatibility, malformed-input, and rotation tests.
+3. Implement explicit agent and mobile identity initialization/restoration with permission,
+   corruption, missing-key, logout, and no-silent-replacement tests.
+4. Add forward-compatible session/device/workspace migrations and module-owned pairing,
+   registration, listing, and revocation repository behavior.
+5. Build verifiable Linux agent artifacts and implement the bounded agent bootstrap/attempt
+   lifecycle without transmitting the pairing secret.
+6. Implement the pairing-only relay route, ticket replay protection, direction/state enforcement,
+   resource bounds, and failure cleanup.
+7. Implement the cross-language XXpsk3 handshake, peer-key checks, two-sided channel binding, and
+   retry-stable confirmation.
+8. Add the mobile scan/manual pairing experience and lifecycle restoration while preserving the M2
+   compatibility path.
+9. Complete atomic single-owner registration, paired endpoint listing/revocation, and remove the
+   required build-time device selector.
+10. Run end-to-end failure injection, security review, full repository validation, signed-artifact
+    verification, and physical iPhone acceptance before recording M3 closure.
+
+Each implementation slice should remain reviewable: normally two or three production functions plus
+their focused unit or integration tests. A slice must pass its narrow checks before the next slice
+starts. Protocol generation, migrations, or cross-deployable behavior are split at explicit
+compatibility seams rather than delivered as one large file replacement.
+
+## Progress
+
+- [x] Inspect the merged M2 implementation, applicable instructions, schemas, contracts, and trust
+      boundaries.
+- [x] Define the M3 ExecPlan and create `feat/m3-agent-bootstrap-pairing` from `origin/main`.
+- [x] Implement and test the canonical X25519 fingerprint codec without adding a dependency.
+- [x] Complete the Go-to-native-core XXpsk3 interoperability spike and dependency risk report.
+- [x] Obtain explicit approval for the 256-bit pairing secret, Go Noise implementation, and mobile
+      FFI prototype.
+- [x] Add a reproducible Go/Rust XXpsk3 success and wrong-PSK interoperability harness.
+- [x] Bundle the approved `snow` core through a host `package_ffi` build hook and invoke a
+      non-secret-bearing Dart ABI probe.
+- [x] Compile and bundle the non-secret-bearing Noise ABI probe in unsigned iOS and Android
+      Flutter builds.
+- [x] Obtain explicit approval for QR and release-attestation dependencies.
+- [ ] Prove the approved native core through Flutter FFI on iOS and Android.
+- [x] Add and regenerate the additive M3 Protobuf contracts.
+- [x] Implement purpose-bound Ed25519 pairing ticket signing and verification.
+- [x] Implement fail-closed agent identity creation and restoration.
+- [x] Implement fail-closed mobile identity creation and restoration.
+- [x] Replace the starter pairing-attempt table with the bounded M3 state schema and transactional
+      migration coverage.
+- [x] Implement open pairing-attempt domain validation and lock-based repository create/load
+      persistence.
+- [x] Implement domain-separated bootstrap-credential authentication and bounded failure accounting.
+- [x] Implement the owner-bound mobile claim transition with exact idempotent retries.
+- [x] Implement the OIDC-authenticated mobile channel-binding confirmation transition.
+- [x] Implement the bootstrap-authenticated agent channel-binding confirmation transition.
+- [x] Implement claim/confirmation state transitions.
+- [x] Backfill and constrain device/workspace canonical fingerprints.
+- [x] Implement device-owned and workspace-owned pairing registration boundaries.
+- [x] Persist a separate canonical agent ID on each pairing attempt and atomically register both
+      endpoints while consuming a matching two-sided confirmation.
+- [x] Implement device-owned and workspace-owned paired listing boundaries.
+- [x] Implement signed agent artifact generation and verification documentation.
+- [ ] Implement bounded agent bootstrap and outbound pairing lifecycle.
+  - [x] Create hash-only pairing attempts and return a purpose-bound agent ticket plus raw
+        bootstrap credential only after a successful database commit.
+  - [ ] Expose the rate-limited bootstrap endpoint and connect the bounded agent pairing command.
+- [ ] Implement pairing-only relay admission, routing, replay, and cleanup.
+- [ ] Implement cross-language XXpsk3 pairing and two-sided confirmation.
+- [ ] Implement Flutter QR/manual pairing and retry/reconciliation UX.
+- [ ] Complete paired endpoint revocation behavior.
+- [ ] Remove the required M2 build-time device selector after compatibility verification.
+- [ ] Run adversarial security review and address actionable findings.
+- [ ] Pass the full repository, infrastructure, release, and physical-device acceptance gates.
+- [ ] Record final M3 acceptance and all explicitly deferred coverage.
+
+## Decisions
+
+- 2026-07-24: Keep M3 limited to bootstrap, pairing, pinning, registration, listing, and revocation.
+  Discard pairing transport cipher states after XXpsk3. Normal IK sessions, multiplexing, flow
+  control, reconnect/resume, and application data remain M4.
+- 2026-07-24: Use one canonical fingerprint:
+  `x25519-sha256:` followed by lowercase hexadecimal SHA-256 of the exact 32-byte X25519 public key.
+  Recompute it at every trust boundary and backfill persisted M2 rows before constraining them.
+- 2026-07-24: Use a 128-bit random opaque pairing ID and a separate random pairing secret. The
+  secret never crosses the control-plane or relay boundary. Attempts expire in about five minutes,
+  relay tickets in at most 60 seconds, and a live route in at most 30 seconds.
+- 2026-07-24: Let the mobile initiate and the agent respond to
+  `Noise_XXpsk3_25519_ChaChaPoly_BLAKE2s`. Bind protocol version, pairing ID, agent fingerprint, and
+  roles through a CodeRoam-specific prologue and reject any recovered peer key mismatch.
+- 2026-07-24: Require an interoperability and dependency-approval gate before production Noise,
+  Flutter FFI, QR, or release-action dependencies. Prefer established cryptographic implementations
+  over implementing Noise primitives locally.
+- 2026-07-25: Resolve the Noise PSK-size gate by using a 256-bit random secret represented as 52
+  unpadded Base32 characters and grouped for manual entry. Approve `github.com/flynn/noise` v1.1.0
+  with current supported crypto pins for the Go side and `snow` v0.10.0 behind a narrow Flutter FFI
+  prototype. Keep production integration separate from the interoperability harness.
+- 2026-07-25: Introduce the FFI boundary with a non-secret-bearing ABI probe before adding opaque
+  handshake handles. Use Dart code-assets build hooks, fail closed on unsupported targets or Cargo
+  failures, and keep the package disconnected from the mobile app until iOS/Android builds pass.
+- 2026-07-26: Connect the internal FFI package only after unsigned iOS and Android builds compile
+  and bundle the approved core. Keep physical-device invocation and all secret-bearing handles
+  deferred to reviewed pairing slices.
+- 2026-07-26: Accept the user's explicit authorization to add the remaining M3 QR,
+  release-attestation, and implementation dependencies without another approval pause. Still pin,
+  audit, minimize, and document every selected dependency before use.
+- 2026-07-26: Keep M2 ticket fields 1-8 wire-compatible and add explicit pairing/session purpose,
+  protocol version, not-before, and signing-key ID fields. Sign exact serialized claims in an
+  algorithm-free envelope so no caller can select or downgrade the Ed25519 verifier.
+- 2026-07-26: Bound the previous relay verification key by an explicit issuance cutoff. Tickets
+  issued before cutover may drain until their ordinary expiry; the previous key cannot mint fresh
+  accepted tickets after cutover.
+- 2026-07-26: Persist the agent X25519 identity behind descriptor-relative no-follow operations,
+  trusted-ancestor ownership/mode/ACL checks, canonical bounded encoding, an fsynced pending record,
+  and context-aware initialization locking. Explicit initialization recovers that pending key after
+  a crash and fails closed on ambiguity; ordinary loading never creates or replaces identity
+  material.
+- 2026-07-26: Carry endpoint role, public key, and canonical fingerprint inside authenticated Noise
+  payloads and confirmations. Consumers must recompute fingerprints, compare recovered Noise keys,
+  reject zero enum/version values, and enforce application-level size limits.
+- 2026-07-31: Publish the mobile X25519 identity through one native atomic create-if-absent
+  operation. iOS uses non-synchronizing, this-device-only Keychain insertion; the single-process
+  Android app encrypts the bounded record with an Android Keystore AES-GCM key and requires a
+  synchronous SharedPreferences commit. Restoration never creates, deletes, repairs, or replaces
+  persisted material, and Dart retains only the derived public identity after each operation.
+- 2026-07-31: Treat every pre-M3 `session.pairing_attempts` row as an unauthenticated starter
+  artifact because it has no bootstrap-credential hash or endpoint state. Migration version 2
+  deletes those short-lived unusable rows transactionally, then adds bounded agent/device
+  candidates, a hash-only bootstrap credential, explicit claim/confirmation state, matching
+  32-byte channel bindings, lifecycle timestamps, and expiry cleanup indexing. It stores no pairing
+  secret or raw bootstrap credential.
+- 2026-07-31: Construct only normalized open attempts, derive the persisted fingerprint from the
+  agent public key, and reject zero/unbounded candidate data before SQL. Let the session repository
+  own the expiry clock, recheck it after acquiring `FOR UPDATE`, and lock a usable open attempt
+  inside the caller-owned transaction; missing, future, expired, exhausted, non-open,
+  noncanonical, and partial rows share one unavailable result. Credential verification and state
+  mutation remain separate reviewed slices.
+- 2026-08-01: Derive each stored bootstrap-credential hash from a versioned CodeRoam domain, the
+  canonical pairing ID, and the exact 256-bit credential. Authenticate only after locking a usable
+  open attempt, compare fixed-size digests in constant time, and recheck expiry and clock ordering
+  after hashing. Wrong, zero, and malformed credentials share the unavailable result and increment
+  the bounded failure count as a normal internal outcome. A transaction-owning service commits that
+  outcome through a cancellation-independent bounded context before mapping it to unavailable, and
+  reports an ambiguous commit separately without granting authentication. Successful verification
+  remains package-private and has no production caller until the confirmation slice can perform its
+  typed mutation under the same lock and transaction. Claim and confirmation transitions remain a
+  separate slice.
+- 2026-08-01: Construct the mobile claim only from an authenticated owner, the QR-bound expected
+  agent public key/protocol, and a canonical bounded device candidate, deriving both fingerprints
+  from their public keys. Apply a new claim only when that expected agent identity exactly matches
+  the locked server candidate. Apply the transition while the usable open attempt is row-locked,
+  and commit it through a transaction-owning internal
+  service. An exact retry of a committed claim is idempotent and preserves the original claim
+  timestamp; a foreign owner, changed expected agent key, changed device ID, name, platform, key,
+  expired attempt, exhausted attempt, or corrupt persisted candidate shares the unavailable result.
+  A commit error remains an
+  unknown outcome and must be reconciled with the same pairing ID and exact claim. Endpoint
+  confirmations and consumption remain separate reviewed slices.
+- 2026-08-01: Accept a mobile confirmation only from the claimed OIDC owner and require its exact
+  protocol, nonzero 32-byte channel binding, observed agent public key, and submitted canonical
+  fingerprint to match the locked server candidate. Restore `claimed` and `confirming` rows through
+  one fail-closed canonical loader so exact claim retries remain stable after confirmation. The
+  first valid mobile confirmation moves the attempt to `confirming`; an exact retry preserves the
+  original timestamp, while a changed owner, peer identity, or binding shares the unavailable
+  result. Commit ambiguity is reconciled with the same pairing ID and confirmation. Agent
+  credential authentication, agent confirmation, consumption, and registration remain separate
+  reviewed slices.
+- 2026-08-03: Accept an agent confirmation only while its claimed or confirming attempt remains
+  row-locked and its exact bootstrap credential authenticates against the attempt-bound stored
+  digest. Require the protocol, nonzero 32-byte channel binding, observed device public key, and
+  recomputed canonical device fingerprint to match the claimed mobile candidate. Commit bounded
+  credential failures before returning the generic unavailable result; exact successful retries
+  preserve the first agent confirmation timestamp, and either endpoint may confirm first only when
+  both bindings agree. Credential failures remain bounded while the first agent confirmation is
+  pending, but cannot mutate or exhaust an attempt after its agent binding is durably stored. A
+  successful two-sided confirmation remains non-authoritative until the later atomic consumption
+  and device/workspace registration slice.
+- 2026-08-03: Before exposing registration, lock each module-owned identity table and fail the
+  migration if any legacy X25519 public key is malformed, noncanonical, low-order, or duplicated.
+  Reject RFC 7748 high-bit and field-reduction aliases rather than allowing two durable identities
+  for the same DH point. Backfill the canonical SHA-256 fingerprint from each validated key, then
+  constrain future key/fingerprint writes to remain equal. Keep device and workspace migrations
+  independent and transactional so a failed preflight or constraint installation records no
+  migration ledger entry; atomic pairing consumption and registration remain the next slice.
+- 2026-08-03: Register pairing-authenticated device and agent candidates only through their owning
+  modules inside a caller-owned transaction. Compute fingerprints locally, canonicalize durable
+  timestamps to PostgreSQL microsecond precision, and accept a conflict only when the complete
+  active owner, ID, metadata, key, fingerprint, and timestamp remain exact. A foreign owner,
+  changed identity, key collision, or revoked row fails closed. Grant the runtime role column-level
+  insert access only to the registration fields; atomic session-owned attempt consumption and
+  paired endpoint listing remain separate slices.
+- 2026-08-19: Keep the durable agent ID distinct from the short-lived pairing ID. Invalidate
+  incomplete pre-v3 attempts because they cannot be upgraded without inventing trusted identity,
+  then require a canonical agent ID on every new attempt. Final completion re-authenticates the
+  attempt-bound agent bootstrap credential after locking matching two-sided confirmations, calls
+  device and workspace registration in that order, and marks the attempt consumed in the same
+  transaction. A consumed row reconciles the exact result after expiry without re-registration;
+  wrong credentials, missing confirmation, revocation, and identity collisions create no partial
+  ownership. Preserve an active matching device's original pairing timestamp when it pairs another
+  agent rather than treating the new completion time as an identity change.
+- 2026-07-24: Sign exact pairing ticket claims with Ed25519 and separate pairing purpose from future
+  session purpose. Keep signing material only in the control plane and verification keys in the
+  relay; keep ticket/replay state short-lived and metadata-only.
+- 2026-07-24: Complete ownership only after both endpoints submit the same channel binding and the
+  session-owned attempt is consumed in the same transaction as device-owned and workspace-owned
+  registration. No cross-schema SQL decides authorization or trust.
+- 2026-08-19: Keep paired device and agent listing inside their owning repositories as bounded,
+  owner-scoped management reads. Return at most 100 records in deterministic indexed order and keep
+  revoked identities visible, but never return static public keys or treat list membership as active
+  trust. Recompute each fingerprint from the stored key and fail the entire read on corrupt or future
+  state; authorization continues through the owning module's explicit authorization method.
+- 2026-07-24: Persist local pins only after consumed status is observed. Treat commit/network
+  ambiguity as a retry/reconciliation problem and never rotate identity automatically.
+- 2026-07-24: Do not automatically attach a newly paired agent to the existing M2
+  environment/project. That requires a separate explicit owner-authorized action.
+- 2026-07-24: Ship verifiable Linux agent artifacts with checksums and approved provenance. Keep
+  installation non-root and defer self-update.
+- 2026-08-19: Build versioned, static Linux agent binaries only for `amd64` and `arm64` from stable
+  `agent-vX.Y.Z` tags whose commits are already on `main`. Trigger the default-branch workflow with a
+  bounded `repository_dispatch`; validate the authorized dispatcher, a creation-only ruleset with
+  exactly one approved GitHub App bypass, a separate update/delete ruleset with no bypass, the
+  unused tag name, and the exact `main` source commit. Build in an unprivileged job, create the tag
+  only from the trusted publish job, and grant release/OIDC permissions only to attestation and
+  publication. Reject dirty and untracked inputs, pin external actions to immutable commits, and
+  publish exact SHA-256 checksums plus a signed record of the agent source commit and trusted
+  workflow commit. Verification binds the repository, signer workflow, source ref, source digest,
+  and signer digest before a root-owned binary is executed by a dedicated non-root account. Never
+  overwrite an existing release, move or delete a release tag, add autonomous update, or treat the
+  current starter runtime as production-ready.
+- 2026-08-20: Let the agent choose the short-lived pairing ID, durable candidate agent ID, public
+  identity metadata, and an expiry no more than five minutes after the control-plane clock. The
+  control plane recomputes and matches the canonical fingerprint, owns relay region, ticket ID,
+  nonce, and time window, persists only the attempt-bound hash of its random 256-bit bootstrap
+  credential, and returns the raw credential and signed agent ticket only after commit. Reserve
+  five seconds of the ticket's one-minute window for explicit clock skew and cap its claim expiry
+  five seconds before the attempt expiry so the relay's acceptance skew cannot outlive the durable
+  attempt. Treat commit acknowledgement loss as terminal for that bootstrap response: return no
+  capability and require a fresh pairing ID while the unreachable attempt expires. Do not expose
+  the unauthenticated HTTP route until its request bounds and rate-limit boundary are implemented.
+
+## Validation
+
+Run the narrowest relevant checks after every slice, then the owning module gate. Required M3
+coverage includes:
+
+- fingerprint golden vectors shared across Go, Dart, SQL backfill, Protobuf, and UI; reject wrong
+  length, prefix, case, characters, hash, key type, and collision;
+- `buf lint`, `buf breaking --against '.git#branch=main'`, canonical generation, clean generated
+  diff, and mixed-version producer/consumer tests;
+- official Noise vectors and deterministic Go-to-mobile XXpsk3 transcripts; reject wrong secret,
+  peer key, prologue, role, version, order, replay, truncation, trailing data, oversize frames, and
+  post-completion messages;
+- signing/verification tests for exact claims, purpose separation, algorithm/key confusion,
+  unknown/previous key IDs, expiry, not-before, region, role, route, nonce replay, and mutation;
+- migration tests for forward application, repeat application, transaction rollback, canonical
+  backfill, malformed legacy rows, duplicate fingerprints, and concurrent completion;
+- repository/application tests for foreign owner, revoked endpoint, mismatched keys, expired
+  attempt, missing confirmation, duplicate confirmation, unknown commit outcome, and idempotent
+  reconciliation;
+- relay tests for duplicate roles, mismatched tickets, slow consumers, disconnects, expired routes,
+  bounded queues, cancellation, deadline cleanup, Redis loss, and credential-free logs;
+- agent tests for permissions, atomic creation, first-run races, missing/corrupt identity, no silent
+  replacement, signal cleanup, bounded retries, and zero secret leakage;
+- mobile tests for secure-storage restoration, logout, biometric/platform failure where applicable,
+  QR/manual parser bounds, retry states, cancellation, and no native-platform-view construction in
+  ordinary unit tests;
+- release tests for `linux/amd64` and `linux/arm64`, clean-input enforcement, branch-only source
+  rejection, checksum and exact-digest provenance verification, immutable action pins, and a
+  non-root smoke install;
+- race detector and focused fuzz/property tests for parsers, tickets, state machines, and frame
+  boundaries;
+- infrastructure smoke with PostgreSQL, Redis, control plane, relay, agent, and authenticated mobile
+  integration; verify PostgreSQL/Redis/outbox/logs contain no pairing secret, private key, token,
+  Noise plaintext, source, or terminal payload;
+- `make bootstrap`, `make proto`, `make fmt`, `make lint`, `make test`, `make build`, the repository
+  infrastructure gate, `govulncheck` for every Go module, `shellcheck`, and `actionlint`;
+- an independent security review after implementation, with every actionable finding fixed or
+  explicitly dispositioned before closure.
+
+Physical acceptance uses the production-shaped ZITADEL, Cloud Run/control-plane, relay, and a signed
+agent on user-controlled Linux:
+
+1. Verify and install the signed artifact as a non-root user.
+2. Start pairing and complete QR pairing from an iPhone.
+3. Repeat with the manual secret path.
+4. Confirm both sides display the same canonical fingerprints and paired ownership.
+5. Restart the agent and app and confirm the identities and pins are unchanged.
+6. Interrupt before each handshake message and before each confirmation; confirm expiry/retry
+   creates no partial registration and never replaces identity.
+7. Revoke the device, then the agent, and confirm later authorization/pairing attempts fail closed.
+8. Inspect bounded operational metadata and confirm no sensitive material was logged or persisted.
+
+Additional physical phone/tablet coverage is recorded explicitly at closure. It is not claimed from
+an iPhone-only run.
+
+## Recovery and rollback
+
+- Deliver focused commits at protocol, migration, deployable, and client compatibility seams.
+- Additive Protobuf fields/messages remain readable by M2 consumers; never reuse or renumber a
+  field. Roll back producers before removing any compatibility path.
+- Device/workspace fingerprint migrations are forward fixes. Old M2 binaries ignore fingerprint
+  text, so application rollback remains possible after backfill. Do not restore noncanonical
+  fingerprints merely to mimic old placeholder data.
+- A control-plane or relay rollback leaves new attempts to expire harmlessly. Pairing credentials
+  and tickets are short-lived and cannot become durable authorization.
+- Rotate a compromised ticket signing key by deploying the new relay verification key before the
+  control-plane signer, retaining only the explicitly bounded previous verification key window.
+- A half-finished handshake or one-sided confirmation creates no device/agent registrations. Retried
+  identical confirmations reconcile; mismatches remain denied.
+- Never delete or regenerate a local identity as rollback. Preserve it, surface the failed state,
+  and require an explicit operator/user rotation flow.
+- Redis loss invalidates live pairing routes but cannot alter durable ownership. The agent creates a
+  fresh attempt and secret.
+- Keep the M2 build-time selector until restored pairing identity is proven in both upgrade and
+  rollback tests. Remove it only in its own reviewable slice.
+- Development Docker and cloud smoke resources must be disposable and cleaned up after validation;
+  production changes remain manual and user-authorized.
+
+## Open risks
+
+- The approved native mobile Noise core now builds for iOS and Android, but secret-bearing handles,
+  zeroization, panic containment, cancellation, and physical-device behavior still need proof.
+- Camera scanning/rendering will add dependencies whose exact packages and immutable versions still
+  require selection, audit, and pinning before implementation. Agent release provenance now uses
+  GitHub's official attestation flow with immutable action pins, but the required
+  release dispatcher, GitHub App actor ID, and two required release-tag rulesets are not yet
+  configured. That setup, the first real tag publication, and external verification remain closure
+  evidence rather than a locally reproducible claim.
+- An unauthenticated bootstrap endpoint and pairing relay route create denial-of-service pressure.
+  Rate limits, admission bounds, timeouts, queue caps, and metrics need failure-injection evidence.
+- Keychain/Keystore creation and restoration compile on iOS and Android, but process termination,
+  accessibility, backup/restore, uninstall/reinstall, and device-lock behavior still require
+  physical-device validation. Dart cryptography and platform-channel strings also cannot provide
+  provable private-byte zeroization; the later secret-bearing native handle must close that gap.
+- A newly paired agent is owner-registered but not automatically attached to the existing M2
+  environment/project. The product must keep this state understandable until an explicit attachment
+  flow is approved.
+- The M3/M4 boundary must remain strict: no general session ticket, IK transport, reconnect/resume,
+  or application frame may leak into the pairing route.
+- Release provenance verification depends on external tooling and network availability; closure
+  must distinguish locally verified artifacts from unavailable third-party checks.
+- iPhone-only acceptance cannot prove Android or tablet platform behavior. Any deferred physical
+  matrix must be stated explicitly rather than treated as passed.

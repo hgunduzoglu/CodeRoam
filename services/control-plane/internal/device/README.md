@@ -25,8 +25,19 @@ an update or outbox failure before commit rolls back the state change. A commit 
 outcome and must be retried: the retry re-reads the row, returns success without a second event if the
 transaction committed, or performs the atomic revocation if it did not.
 
-Device creation/listing persistence and public-key fingerprint encoding remain separate slices.
-Fingerprint encoding must be fixed with the M3 pairing contract before registration is exposed.
-Transport-provided timestamps or user identifiers must not bypass the application service. Callers
-must bound and finish authorization transactions; returning from `Authorize` does not release its
-row lock.
+Paired-device listing is a transaction-owning, owner-scoped management read. It returns at most 100
+records ordered by pairing time and ID, includes revoked devices so clients can explain their state,
+and exposes the canonical fingerprint but never the static public key. Every stored identity and
+timestamp is revalidated, including recomputing the fingerprint from the hidden key; one corrupt or
+future row fails the whole read instead of returning a partial trust view. Listing does not establish
+that a device is active: trust-sensitive callers must still use `Authorize`.
+
+M3 migration version 2 takes an exclusive table lock and rejects malformed, noncanonical,
+low-order, or duplicate legacy X25519 public keys before changing data. This prevents RFC 7748
+input aliases from creating multiple durable identities for the same DH point. It backfills the
+canonical fingerprint from each validated key and constrains all later key/fingerprint writes to
+the same representation. A failed preflight or constraint installation rolls back both the
+backfill and migration ledger entry. Migration version 3 adds the owner/pairing-time/ID index used
+by the bounded paired-device listing query. Transport-provided timestamps or user identifiers must
+not bypass the application service. Callers must bound and finish authorization transactions;
+returning from `Authorize` does not release its row lock.

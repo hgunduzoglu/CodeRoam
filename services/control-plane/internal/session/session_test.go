@@ -88,6 +88,10 @@ func TestNewSession(t *testing.T) {
 			actor: owner, sessionID: sessionID, deviceID: deviceID, agentID: agentID,
 			projectID: projectID, region: "eu-central-1-", startedAt: startedAt, want: ErrInvalidSession,
 		},
+		"consecutive separator": {
+			actor: owner, sessionID: sessionID, deviceID: deviceID, agentID: agentID,
+			projectID: projectID, region: "eu--central-1", startedAt: startedAt, want: ErrInvalidSession,
+		},
 		"control character": {
 			actor: owner, sessionID: sessionID, deviceID: deviceID, agentID: agentID,
 			projectID: projectID, region: "eu\ncentral-1", startedAt: startedAt, want: ErrInvalidSession,

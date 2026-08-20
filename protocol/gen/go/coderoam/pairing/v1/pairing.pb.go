@@ -21,6 +21,55 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type PairingEndpointRole int32
+
+const (
+	PairingEndpointRole_PAIRING_ENDPOINT_ROLE_UNSPECIFIED PairingEndpointRole = 0
+	PairingEndpointRole_PAIRING_ENDPOINT_ROLE_MOBILE      PairingEndpointRole = 1
+	PairingEndpointRole_PAIRING_ENDPOINT_ROLE_AGENT       PairingEndpointRole = 2
+)
+
+// Enum value maps for PairingEndpointRole.
+var (
+	PairingEndpointRole_name = map[int32]string{
+		0: "PAIRING_ENDPOINT_ROLE_UNSPECIFIED",
+		1: "PAIRING_ENDPOINT_ROLE_MOBILE",
+		2: "PAIRING_ENDPOINT_ROLE_AGENT",
+	}
+	PairingEndpointRole_value = map[string]int32{
+		"PAIRING_ENDPOINT_ROLE_UNSPECIFIED": 0,
+		"PAIRING_ENDPOINT_ROLE_MOBILE":      1,
+		"PAIRING_ENDPOINT_ROLE_AGENT":       2,
+	}
+)
+
+func (x PairingEndpointRole) Enum() *PairingEndpointRole {
+	p := new(PairingEndpointRole)
+	*p = x
+	return p
+}
+
+func (x PairingEndpointRole) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (PairingEndpointRole) Descriptor() protoreflect.EnumDescriptor {
+	return file_coderoam_pairing_v1_pairing_proto_enumTypes[0].Descriptor()
+}
+
+func (PairingEndpointRole) Type() protoreflect.EnumType {
+	return &file_coderoam_pairing_v1_pairing_proto_enumTypes[0]
+}
+
+func (x PairingEndpointRole) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use PairingEndpointRole.Descriptor instead.
+func (PairingEndpointRole) EnumDescriptor() ([]byte, []int) {
+	return file_coderoam_pairing_v1_pairing_proto_rawDescGZIP(), []int{0}
+}
+
 type PairingQrPayload struct {
 	state                protoimpl.MessageState `protogen:"open.v1"`
 	PairingId            string                 `protobuf:"bytes,1,opt,name=pairing_id,json=pairingId,proto3" json:"pairing_id,omitempty"`
@@ -29,6 +78,7 @@ type PairingQrPayload struct {
 	PairingSecret        []byte                 `protobuf:"bytes,4,opt,name=pairing_secret,json=pairingSecret,proto3" json:"pairing_secret,omitempty"`
 	ProtocolVersion      uint32                 `protobuf:"varint,5,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
 	ExpiresAtUnixSeconds int64                  `protobuf:"varint,6,opt,name=expires_at_unix_seconds,json=expiresAtUnixSeconds,proto3" json:"expires_at_unix_seconds,omitempty"`
+	AgentDisplayName     string                 `protobuf:"bytes,7,opt,name=agent_display_name,json=agentDisplayName,proto3" json:"agent_display_name,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -103,6 +153,13 @@ func (x *PairingQrPayload) GetExpiresAtUnixSeconds() int64 {
 		return x.ExpiresAtUnixSeconds
 	}
 	return 0
+}
+
+func (x *PairingQrPayload) GetAgentDisplayName() string {
+	if x != nil {
+		return x.AgentDisplayName
+	}
+	return ""
 }
 
 type PairingComplete struct {
@@ -181,11 +238,177 @@ func (x *PairingComplete) GetAgentKeyFingerprint() string {
 	return ""
 }
 
+// PairingHandshakePayload is carried only inside the authenticated Noise
+// handshake. Consumers must recompute the fingerprint and compare the static
+// key with the key recovered from Noise before trusting either field.
+type PairingHandshakePayload struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ProtocolVersion uint32                 `protobuf:"varint,1,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
+	PairingId       string                 `protobuf:"bytes,2,opt,name=pairing_id,json=pairingId,proto3" json:"pairing_id,omitempty"`
+	Role            PairingEndpointRole    `protobuf:"varint,3,opt,name=role,proto3,enum=coderoam.pairing.v1.PairingEndpointRole" json:"role,omitempty"`
+	StaticPublicKey []byte                 `protobuf:"bytes,4,opt,name=static_public_key,json=staticPublicKey,proto3" json:"static_public_key,omitempty"`
+	KeyFingerprint  string                 `protobuf:"bytes,5,opt,name=key_fingerprint,json=keyFingerprint,proto3" json:"key_fingerprint,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *PairingHandshakePayload) Reset() {
+	*x = PairingHandshakePayload{}
+	mi := &file_coderoam_pairing_v1_pairing_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PairingHandshakePayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PairingHandshakePayload) ProtoMessage() {}
+
+func (x *PairingHandshakePayload) ProtoReflect() protoreflect.Message {
+	mi := &file_coderoam_pairing_v1_pairing_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PairingHandshakePayload.ProtoReflect.Descriptor instead.
+func (*PairingHandshakePayload) Descriptor() ([]byte, []int) {
+	return file_coderoam_pairing_v1_pairing_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *PairingHandshakePayload) GetProtocolVersion() uint32 {
+	if x != nil {
+		return x.ProtocolVersion
+	}
+	return 0
+}
+
+func (x *PairingHandshakePayload) GetPairingId() string {
+	if x != nil {
+		return x.PairingId
+	}
+	return ""
+}
+
+func (x *PairingHandshakePayload) GetRole() PairingEndpointRole {
+	if x != nil {
+		return x.Role
+	}
+	return PairingEndpointRole_PAIRING_ENDPOINT_ROLE_UNSPECIFIED
+}
+
+func (x *PairingHandshakePayload) GetStaticPublicKey() []byte {
+	if x != nil {
+		return x.StaticPublicKey
+	}
+	return nil
+}
+
+func (x *PairingHandshakePayload) GetKeyFingerprint() string {
+	if x != nil {
+		return x.KeyFingerprint
+	}
+	return ""
+}
+
+// PairingConfirmation binds one endpoint's observation of the completed
+// handshake to the pairing attempt. The application layer requires a
+// 32-byte channel binding and an exact peer-key match.
+type PairingConfirmation struct {
+	state                       protoimpl.MessageState `protogen:"open.v1"`
+	PairingId                   string                 `protobuf:"bytes,1,opt,name=pairing_id,json=pairingId,proto3" json:"pairing_id,omitempty"`
+	ProtocolVersion             uint32                 `protobuf:"varint,2,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
+	Role                        PairingEndpointRole    `protobuf:"varint,3,opt,name=role,proto3,enum=coderoam.pairing.v1.PairingEndpointRole" json:"role,omitempty"`
+	ChannelBinding              []byte                 `protobuf:"bytes,4,opt,name=channel_binding,json=channelBinding,proto3" json:"channel_binding,omitempty"`
+	ObservedPeerStaticPublicKey []byte                 `protobuf:"bytes,5,opt,name=observed_peer_static_public_key,json=observedPeerStaticPublicKey,proto3" json:"observed_peer_static_public_key,omitempty"`
+	ObservedPeerKeyFingerprint  string                 `protobuf:"bytes,6,opt,name=observed_peer_key_fingerprint,json=observedPeerKeyFingerprint,proto3" json:"observed_peer_key_fingerprint,omitempty"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
+}
+
+func (x *PairingConfirmation) Reset() {
+	*x = PairingConfirmation{}
+	mi := &file_coderoam_pairing_v1_pairing_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PairingConfirmation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PairingConfirmation) ProtoMessage() {}
+
+func (x *PairingConfirmation) ProtoReflect() protoreflect.Message {
+	mi := &file_coderoam_pairing_v1_pairing_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PairingConfirmation.ProtoReflect.Descriptor instead.
+func (*PairingConfirmation) Descriptor() ([]byte, []int) {
+	return file_coderoam_pairing_v1_pairing_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *PairingConfirmation) GetPairingId() string {
+	if x != nil {
+		return x.PairingId
+	}
+	return ""
+}
+
+func (x *PairingConfirmation) GetProtocolVersion() uint32 {
+	if x != nil {
+		return x.ProtocolVersion
+	}
+	return 0
+}
+
+func (x *PairingConfirmation) GetRole() PairingEndpointRole {
+	if x != nil {
+		return x.Role
+	}
+	return PairingEndpointRole_PAIRING_ENDPOINT_ROLE_UNSPECIFIED
+}
+
+func (x *PairingConfirmation) GetChannelBinding() []byte {
+	if x != nil {
+		return x.ChannelBinding
+	}
+	return nil
+}
+
+func (x *PairingConfirmation) GetObservedPeerStaticPublicKey() []byte {
+	if x != nil {
+		return x.ObservedPeerStaticPublicKey
+	}
+	return nil
+}
+
+func (x *PairingConfirmation) GetObservedPeerKeyFingerprint() string {
+	if x != nil {
+		return x.ObservedPeerKeyFingerprint
+	}
+	return ""
+}
+
 var File_coderoam_pairing_v1_pairing_proto protoreflect.FileDescriptor
 
 const file_coderoam_pairing_v1_pairing_proto_rawDesc = "" +
 	"\n" +
-	"!coderoam/pairing/v1/pairing.proto\x12\x13coderoam.pairing.v1\"\xa5\x02\n" +
+	"!coderoam/pairing/v1/pairing.proto\x12\x13coderoam.pairing.v1\"\xd3\x02\n" +
 	"\x10PairingQrPayload\x12\x1d\n" +
 	"\n" +
 	"pairing_id\x18\x01 \x01(\tR\tpairingId\x125\n" +
@@ -193,14 +416,34 @@ const file_coderoam_pairing_v1_pairing_proto_rawDesc = "" +
 	"\x15agent_key_fingerprint\x18\x03 \x01(\tR\x13agentKeyFingerprint\x12%\n" +
 	"\x0epairing_secret\x18\x04 \x01(\fR\rpairingSecret\x12)\n" +
 	"\x10protocol_version\x18\x05 \x01(\rR\x0fprotocolVersion\x125\n" +
-	"\x17expires_at_unix_seconds\x18\x06 \x01(\x03R\x14expiresAtUnixSeconds\"\x8a\x02\n" +
+	"\x17expires_at_unix_seconds\x18\x06 \x01(\x03R\x14expiresAtUnixSeconds\x12,\n" +
+	"\x12agent_display_name\x18\a \x01(\tR\x10agentDisplayName\"\x8a\x02\n" +
 	"\x0fPairingComplete\x12\x1d\n" +
 	"\n" +
 	"pairing_id\x18\x01 \x01(\tR\tpairingId\x127\n" +
 	"\x18device_static_public_key\x18\x02 \x01(\fR\x15deviceStaticPublicKey\x124\n" +
 	"\x16device_key_fingerprint\x18\x03 \x01(\tR\x14deviceKeyFingerprint\x125\n" +
 	"\x17agent_static_public_key\x18\x04 \x01(\fR\x14agentStaticPublicKey\x122\n" +
-	"\x15agent_key_fingerprint\x18\x05 \x01(\tR\x13agentKeyFingerprintBOZMgithub.com/hgunduzoglu/coderoam/protocol/gen/go/coderoam/pairing/v1;pairingv1b\x06proto3"
+	"\x15agent_key_fingerprint\x18\x05 \x01(\tR\x13agentKeyFingerprint\"\xf6\x01\n" +
+	"\x17PairingHandshakePayload\x12)\n" +
+	"\x10protocol_version\x18\x01 \x01(\rR\x0fprotocolVersion\x12\x1d\n" +
+	"\n" +
+	"pairing_id\x18\x02 \x01(\tR\tpairingId\x12<\n" +
+	"\x04role\x18\x03 \x01(\x0e2(.coderoam.pairing.v1.PairingEndpointRoleR\x04role\x12*\n" +
+	"\x11static_public_key\x18\x04 \x01(\fR\x0fstaticPublicKey\x12'\n" +
+	"\x0fkey_fingerprint\x18\x05 \x01(\tR\x0ekeyFingerprint\"\xcf\x02\n" +
+	"\x13PairingConfirmation\x12\x1d\n" +
+	"\n" +
+	"pairing_id\x18\x01 \x01(\tR\tpairingId\x12)\n" +
+	"\x10protocol_version\x18\x02 \x01(\rR\x0fprotocolVersion\x12<\n" +
+	"\x04role\x18\x03 \x01(\x0e2(.coderoam.pairing.v1.PairingEndpointRoleR\x04role\x12'\n" +
+	"\x0fchannel_binding\x18\x04 \x01(\fR\x0echannelBinding\x12D\n" +
+	"\x1fobserved_peer_static_public_key\x18\x05 \x01(\fR\x1bobservedPeerStaticPublicKey\x12A\n" +
+	"\x1dobserved_peer_key_fingerprint\x18\x06 \x01(\tR\x1aobservedPeerKeyFingerprint*\x7f\n" +
+	"\x13PairingEndpointRole\x12%\n" +
+	"!PAIRING_ENDPOINT_ROLE_UNSPECIFIED\x10\x00\x12 \n" +
+	"\x1cPAIRING_ENDPOINT_ROLE_MOBILE\x10\x01\x12\x1f\n" +
+	"\x1bPAIRING_ENDPOINT_ROLE_AGENT\x10\x02BOZMgithub.com/hgunduzoglu/coderoam/protocol/gen/go/coderoam/pairing/v1;pairingv1b\x06proto3"
 
 var (
 	file_coderoam_pairing_v1_pairing_proto_rawDescOnce sync.Once
@@ -214,17 +457,23 @@ func file_coderoam_pairing_v1_pairing_proto_rawDescGZIP() []byte {
 	return file_coderoam_pairing_v1_pairing_proto_rawDescData
 }
 
-var file_coderoam_pairing_v1_pairing_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_coderoam_pairing_v1_pairing_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_coderoam_pairing_v1_pairing_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_coderoam_pairing_v1_pairing_proto_goTypes = []any{
-	(*PairingQrPayload)(nil), // 0: coderoam.pairing.v1.PairingQrPayload
-	(*PairingComplete)(nil),  // 1: coderoam.pairing.v1.PairingComplete
+	(PairingEndpointRole)(0),        // 0: coderoam.pairing.v1.PairingEndpointRole
+	(*PairingQrPayload)(nil),        // 1: coderoam.pairing.v1.PairingQrPayload
+	(*PairingComplete)(nil),         // 2: coderoam.pairing.v1.PairingComplete
+	(*PairingHandshakePayload)(nil), // 3: coderoam.pairing.v1.PairingHandshakePayload
+	(*PairingConfirmation)(nil),     // 4: coderoam.pairing.v1.PairingConfirmation
 }
 var file_coderoam_pairing_v1_pairing_proto_depIdxs = []int32{
-	0, // [0:0] is the sub-list for method output_type
-	0, // [0:0] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	0, // 0: coderoam.pairing.v1.PairingHandshakePayload.role:type_name -> coderoam.pairing.v1.PairingEndpointRole
+	0, // 1: coderoam.pairing.v1.PairingConfirmation.role:type_name -> coderoam.pairing.v1.PairingEndpointRole
+	2, // [2:2] is the sub-list for method output_type
+	2, // [2:2] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_coderoam_pairing_v1_pairing_proto_init() }
@@ -237,13 +486,14 @@ func file_coderoam_pairing_v1_pairing_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coderoam_pairing_v1_pairing_proto_rawDesc), len(file_coderoam_pairing_v1_pairing_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   2,
+			NumEnums:      1,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_coderoam_pairing_v1_pairing_proto_goTypes,
 		DependencyIndexes: file_coderoam_pairing_v1_pairing_proto_depIdxs,
+		EnumInfos:         file_coderoam_pairing_v1_pairing_proto_enumTypes,
 		MessageInfos:      file_coderoam_pairing_v1_pairing_proto_msgTypes,
 	}.Build()
 	File_coderoam_pairing_v1_pairing_proto = out.File

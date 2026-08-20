@@ -1,7 +1,13 @@
-FROM golang:1.26.5-alpine AS build
+FROM golang:1.26.6-alpine AS build
 WORKDIR /src
-COPY services/agent/go.mod ./
-COPY services/agent/ ./
+COPY packages/go/cryptox/go.mod ./packages/go/cryptox/
+COPY services/agent/go.mod services/agent/go.sum ./services/agent/
+WORKDIR /src/services/agent
+RUN go mod download
+WORKDIR /src
+COPY packages/go/cryptox/ ./packages/go/cryptox/
+COPY services/agent/ ./services/agent/
+WORKDIR /src/services/agent
 RUN CGO_ENABLED=0 go build -trimpath -o /out/coderoam-agent ./cmd/coderoam-agent
 
 FROM gcr.io/distroless/static-debian12:nonroot

@@ -1,8 +1,8 @@
 package device
 
 import (
-	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"os"
 	"testing"
@@ -113,6 +113,7 @@ func TestRepositoryIntegration(t *testing.T) {
 	assertDeviceRevocation(t, ctx, tx, recoveryDeviceID, &revokedAt, 1)
 
 	lockedDeviceID := newIntegrationDeviceID(t)
+	lockedDeviceKey := canonicalDeviceIntegrationPublicKey(lockedDeviceID)
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO device.devices (
 			id, user_id, name, platform, static_public_key, public_key_fingerprint, paired_at
@@ -121,8 +122,8 @@ func TestRepositoryIntegration(t *testing.T) {
 		ownerID.String(),
 		"Locked integration device",
 		"ios",
-		bytes.Repeat([]byte{0x43}, 32),
-		"fixture:"+lockedDeviceID,
+		lockedDeviceKey[:],
+		rawFingerprint(lockedDeviceKey[:]),
 		pairedAt,
 	); err != nil {
 		t.Fatalf("insert locked device fixture: %v", err)
@@ -177,18 +178,28 @@ func TestRepositoryIntegration(t *testing.T) {
 func applyDeviceIntegrationMigrations(t *testing.T, ctx context.Context, database postgresx.TransactionStarter) {
 	t.Helper()
 	for _, migration := range []struct {
-		scope string
-		path  string
+		scope   string
+		version uint64
+		name    string
+		path    string
 	}{
-		{scope: "device", path: "migrations/000001_init.sql"},
-		{scope: "outbox", path: "../outbox/migrations/000001_init.sql"},
+		{scope: "device", version: 1, name: "init", path: "migrations/000001_init.sql"},
+		{
+			scope: "device", version: 2, name: "canonical_fingerprint",
+			path: "migrations/000002_canonical_fingerprint.sql",
+		},
+		{
+			scope: "device", version: 3, name: "paired_device_list_index",
+			path: "migrations/000003_paired_device_list_index.sql",
+		},
+		{scope: "outbox", version: 1, name: "init", path: "../outbox/migrations/000001_init.sql"},
 	} {
 		sql, err := os.ReadFile(migration.path)
 		if err != nil {
 			t.Fatalf("read %s migration: %v", migration.scope, err)
 		}
 		if err := postgresx.ApplyMigrations(ctx, database, []postgresx.Migration{{
-			Scope: migration.scope, Version: 1, Name: "init", SQL: string(sql),
+			Scope: migration.scope, Version: migration.version, Name: migration.name, SQL: string(sql),
 		}}); err != nil {
 			t.Fatalf("apply %s migration: %v", migration.scope, err)
 		}
@@ -204,6 +215,7 @@ func insertDeviceFixture(
 	pairedAt time.Time,
 ) {
 	t.Helper()
+	publicKey := canonicalDeviceIntegrationPublicKey(deviceID)
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO device.devices (
 			id, user_id, name, platform, static_public_key, public_key_fingerprint, paired_at
@@ -212,12 +224,18 @@ func insertDeviceFixture(
 		ownerID,
 		"Integration device",
 		"ios",
-		bytes.Repeat([]byte{0x42}, 32),
-		"fixture:"+deviceID,
+		publicKey[:],
+		rawFingerprint(publicKey[:]),
 		pairedAt,
 	); err != nil {
 		t.Fatalf("insert device fixture: %v", err)
 	}
+}
+
+func canonicalDeviceIntegrationPublicKey(deviceID string) [32]byte {
+	publicKey := sha256.Sum256([]byte(deviceID))
+	publicKey[31] &= 0x7f
+	return publicKey
 }
 
 type deviceStateReader interface {

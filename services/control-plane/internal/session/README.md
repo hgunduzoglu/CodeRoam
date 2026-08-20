@@ -28,3 +28,98 @@ and server-selected region exactly match; foreign or mismatched reuse fails clos
 returns `ErrSessionCommitOutcomeUnknown`, so callers must retry the same ID and inputs instead of
 creating a second session. Session insertion emits no outbox event because M2 creates no relay
 credential or other external side effect.
+
+M3 migration version 2 replaces the unused pairing-attempt starter shape with session-owned,
+bounded bootstrap, candidate, claim, confirmation, and consumption metadata. Pre-M3 rows cannot be
+authenticated because they contain no bootstrap-credential hash, so the forward migration deletes
+them transactionally instead of upgrading them into trusted attempts. The schema stores only a
+domain-separated 32-byte bootstrap-credential hash; the raw credential, pairing secret, Noise
+plaintext, private keys, and engineering payloads never enter PostgreSQL.
+
+Database constraints provide defense in depth for canonical IDs/fingerprints, 32-byte public keys
+and channel bindings, the five-minute maximum lifetime, bounded failure count, complete optional
+claim groups, matching endpoint bindings, and explicit `open`/`claimed`/`confirming`/`consumed`
+state shapes. Application services remain responsible for recomputing fingerprints, authenticating
+the bootstrap credential, enforcing expiry on every access, and performing state transitions under
+a row lock; those rules must not be inferred from cross-schema SQL.
+
+The open-attempt domain constructor rejects noncanonical identifiers, zero or malformed public
+keys, unbounded/control/bidirectional/format-separator metadata, unsupported protocol versions,
+invalid relay regions, zero or wrong-sized credential hashes, and PostgreSQL-canonical lifetimes
+outside `(0, 5 minutes]`. It computes the canonical agent fingerprint from the copied public key
+instead of accepting fingerprint text.
+
+`CreatePairingAttempt` persists only validated constructor output in a caller-owned transaction.
+`LockOpenPairingAttempt` samples the repository clock before and after `FOR UPDATE`, and returns the
+same generic unavailable result for missing, future, expired, exhausted, non-open, noncanonical, or
+partially populated rows. The caller retains the row lock until its transaction commits or rolls
+back.
+
+`HashPairingBootstrapCredential` hashes an exact 256-bit credential with a versioned domain and the
+canonical pairing ID, so a stored digest cannot be substituted between attempts. The raw credential
+remains caller-owned and is never persisted. `authenticateOpenPairingAttempt` locks and restores the
+open attempt, compares the derived digest in constant time, and rechecks expiry after hashing. The
+helper is package-private and reports a wrong, zero, or malformed credential as a normal rejected
+outcome after incrementing the bounded failure count. The package-private pairing-attempt service
+owns the transaction, commits that rejection through a short cancellation-independent context, and
+only then returns the same unavailable result used by missing, expired, and exhausted attempts. An
+ambiguous commit grants no authentication and returns a distinct reconciliation error. A successful
+check is deliberately not exposed as an authorization capability; the confirmation slice must keep
+verification and its typed mutation under this same row lock and transaction. Clock rollback,
+cancellation before mutation, exhausted attempts, and expiry fail closed.
+
+`NewPairingAttemptClaim` accepts only an authenticated owner, the QR-bound expected agent public
+key/protocol, and a bounded canonical mobile candidate. It normalizes the device display name,
+restricts the platform, rejects zero or malformed public keys, and derives both canonical
+fingerprints instead of accepting fingerprint text. The locked attempt must contain the exact
+expected agent identity before the claim can be written.
+The package-private pairing-attempt service applies the claim while the open attempt remains locked
+inside one bounded PostgreSQL transaction. An exact retry after commit is idempotent and preserves
+the first claim timestamp. Foreign owners, changed device metadata or keys, expired/exhausted rows,
+and corrupt stored candidates share the unavailable result. A commit error is an unknown outcome;
+callers must retry the same pairing ID and exact claim. No claim registers a device or agent, and
+endpoint confirmation plus atomic consumption remain later M3 transitions.
+
+`NewMobilePairingConfirmation` copies one nonzero 32-byte channel binding and recomputes the
+observed agent fingerprint from its public key, rejecting a mismatched submitted fingerprint. The
+session repository restores claimed or confirming attempts under `FOR UPDATE`, revalidates the
+owner, agent and device candidates, expiry, failure bound, state shape, optional confirmation
+timestamps, and any existing binding before mutation. A first valid OIDC-owner confirmation moves
+the attempt from `claimed` to `confirming`; an exact retry preserves the original binding and
+timestamp. Foreign owners, changed observed agents, changed bindings, expired rows, and corrupt
+durable state share the unavailable result. Claim reconciliation remains exact after the state
+change, and a commit acknowledgement failure is retried with the same pairing ID and confirmation.
+This transition grants no device or agent registration. Attempt consumption and atomic
+device/workspace registration remain later M3 slices.
+
+`NewAgentPairingConfirmation` copies one nonzero 32-byte channel binding and recomputes the
+observed mobile fingerprint from its public key. The agent confirmation repository operation locks
+the claimed attempt before deriving and comparing the attempt-bound bootstrap-credential digest,
+then validates the exact protocol and claimed device identity. Until the first agent observation is
+stored, wrong or malformed credentials increment the bounded failure count and are committed before
+the service returns the generic unavailable result. Once an agent binding exists, rejected
+credentials cannot mutate or exhaust the confirmed attempt. A first valid agent observation moves
+a claimed attempt to `confirming`; either endpoint may arrive first, but the second binding must
+match exactly. Exact successful retries keep the original agent timestamp, expiry is checked after
+the row lock and credential hash, and commit acknowledgement loss is reconciled with the same
+pairing ID, credential, and confirmation. Even matching two-sided confirmation grants no ownership,
+registration, relay capability, or reusable credential; atomic consumption and device/workspace
+registration remain a separate M3 slice.
+
+Migration version 3 invalidates incomplete pre-v3 attempts and adds the agent's separate canonical
+opaque ID. The short-lived pairing ID is never repurposed as the durable workspace-agent ID, and a
+malformed or missing agent ID makes the attempt unavailable. `pairingCompletionService.complete`
+requires the exact attempt-bound bootstrap credential after locking the attempt, then calls the
+device-owned and workspace-owned registration boundaries and performs the session-owned
+`consumed` transition in one caller-owned PostgreSQL transaction. Missing or mismatched endpoint
+confirmation, wrong credentials, expiry before consumption, revoked registrations, owner/key/ID
+collisions, or any persistence failure rolls back all three writes. The transaction always locks
+session, then device, then agent, which keeps concurrent exact completion deterministic.
+
+A lost commit acknowledgement is reconciled with the same pairing ID and credential. A canonical
+consumed row remains readable after its attempt expiry and returns its original device ID, agent ID,
+and consumption timestamp without re-registering either endpoint. Exact confirmation retries also
+remain stable after consumption; wrong credentials cannot mutate or exhaust a confirmed or
+consumed attempt. An already-active matching device can pair a different agent without replacing
+its first pairing timestamp, while a changed owner, metadata field, key, fingerprint, or revoked
+row still fails closed.

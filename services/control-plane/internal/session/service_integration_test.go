@@ -2,7 +2,9 @@ package session
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"os"
 	"sync"
 	"testing"
@@ -291,13 +293,39 @@ func applySessionServiceIntegrationMigrations(
 ) {
 	t.Helper()
 	files := []struct {
-		scope string
-		path  string
+		scope   string
+		version uint64
+		name    string
+		path    string
 	}{
-		{scope: "outbox", path: "../outbox/migrations/000001_init.sql"},
-		{scope: "device", path: "../device/migrations/000001_init.sql"},
-		{scope: "workspace", path: "../workspace/migrations/000001_init.sql"},
-		{scope: "session", path: "migrations/000001_init.sql"},
+		{scope: "outbox", version: 1, name: "init", path: "../outbox/migrations/000001_init.sql"},
+		{scope: "device", version: 1, name: "init", path: "../device/migrations/000001_init.sql"},
+		{
+			scope: "device", version: 2, name: "canonical_fingerprint",
+			path: "../device/migrations/000002_canonical_fingerprint.sql",
+		},
+		{
+			scope: "device", version: 3, name: "paired_device_list_index",
+			path: "../device/migrations/000003_paired_device_list_index.sql",
+		},
+		{scope: "workspace", version: 1, name: "init", path: "../workspace/migrations/000001_init.sql"},
+		{
+			scope: "workspace", version: 2, name: "canonical_agent_fingerprint",
+			path: "../workspace/migrations/000002_canonical_agent_fingerprint.sql",
+		},
+		{
+			scope: "workspace", version: 3, name: "paired_agent_list_index",
+			path: "../workspace/migrations/000003_paired_agent_list_index.sql",
+		},
+		{scope: "session", version: 1, name: "init", path: "migrations/000001_init.sql"},
+		{
+			scope: "session", version: 2, name: "pairing_attempt_state",
+			path: "migrations/000002_pairing_attempt_state.sql",
+		},
+		{
+			scope: "session", version: 3, name: "pairing_agent_id",
+			path: "migrations/000003_pairing_agent_id.sql",
+		},
 	}
 	for _, file := range files {
 		sql, err := os.ReadFile(file.path)
@@ -305,7 +333,7 @@ func applySessionServiceIntegrationMigrations(
 			t.Fatalf("read %s migration: %v", file.scope, err)
 		}
 		if err := postgresx.ApplyMigrations(ctx, database, []postgresx.Migration{{
-			Scope: file.scope, Version: 1, Name: "init", SQL: string(sql),
+			Scope: file.scope, Version: file.version, Name: file.name, SQL: string(sql),
 		}}); err != nil {
 			t.Fatalf("apply %s migration: %v", file.scope, err)
 		}
@@ -331,11 +359,12 @@ func insertSessionServiceFixture(
 	}
 	assertSessionServiceFixturesMissing(t, ctx, pool, fixture)
 	registerSessionServiceFixtureCleanup(t, pool, fixture)
+	devicePublicKey := repeatedSessionServiceByte(0x41)
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO device.devices (
 			id, user_id, name, platform, static_public_key, public_key_fingerprint, paired_at
 		) VALUES ($1, $2, 'Owner phone', 'ios', $3, $4, $5)`,
-		fixture.deviceID, ownerID, repeatedSessionServiceByte(0x41), "device-"+fixture.deviceID,
+		fixture.deviceID, ownerID, devicePublicKey, sessionServiceFingerprint(devicePublicKey),
 		fixture.devicePairedAt,
 	); err != nil {
 		t.Fatalf("insert session-service device: %v", err)
@@ -347,11 +376,12 @@ func insertSessionServiceFixture(
 		{id: fixture.agentID, keyByte: 0x51},
 		{id: fixture.otherAgentID, keyByte: 0x52},
 	} {
+		agentPublicKey := repeatedSessionServiceByte(agent.keyByte)
 		if _, err := pool.Exec(ctx, `
 			INSERT INTO workspace.agents (
 				id, user_id, name, static_public_key, public_key_fingerprint, version, created_at
 			) VALUES ($1, $2, 'Owner agent', $3, $4, '0.1.0', $5)`,
-			agent.id, ownerID, repeatedSessionServiceByte(agent.keyByte), "agent-"+agent.id,
+			agent.id, ownerID, agentPublicKey, sessionServiceFingerprint(agentPublicKey),
 			fixture.agentCreatedAt,
 		); err != nil {
 			t.Fatalf("insert session-service agent: %v", err)
@@ -372,6 +402,11 @@ func insertSessionServiceFixture(
 		t.Fatalf("insert session-service project: %v", err)
 	}
 	return fixture
+}
+
+func sessionServiceFingerprint(publicKey []byte) string {
+	digest := sha256.Sum256(publicKey)
+	return fmt.Sprintf("x25519-sha256:%x", digest)
 }
 
 func assertSessionServiceFixturesMissing(

@@ -79,11 +79,15 @@ func TestRepositoryAuthorizeAgentIntegration(t *testing.T) {
 
 	corruptKeyAgentID := newWorkspaceIntegrationID(t)
 	insertAgentFixture(t, ctx, tx, corruptKeyAgentID, ownerID.String(), checkedAt.Add(-time.Hour), 0x44)
-	if _, err := tx.Exec(ctx, `UPDATE workspace.agents SET static_public_key = $1 WHERE id = $2`, []byte{0x44}, corruptKeyAgentID); err != nil {
-		t.Fatalf("corrupt stored agent public key: %v", err)
+	if _, err := tx.Exec(ctx, `SAVEPOINT reject_corrupt_agent_key`); err != nil {
+		t.Fatalf("create corrupt-agent savepoint: %v", err)
 	}
-	if err := repository.AuthorizeAgent(ctx, tx, owner, corruptKeyAgentID); !errors.Is(err, ErrAgentAccessDenied) {
-		t.Fatalf("AuthorizeAgent(corrupt key) error = %v, want ErrAgentAccessDenied", err)
+	_, err = tx.Exec(ctx, `UPDATE workspace.agents SET static_public_key = $1 WHERE id = $2`, []byte{0x44}, corruptKeyAgentID)
+	assertAgentFingerprintDatabaseError(
+		t, err, "agents_static_public_key_length", "agents_public_key_fingerprint_matches_key",
+	)
+	if _, err := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT reject_corrupt_agent_key`); err != nil {
+		t.Fatalf("recover from rejected corrupt agent key: %v", err)
 	}
 
 	corruptVersionAgentID := newWorkspaceIntegrationID(t)
@@ -249,18 +253,28 @@ func applyWorkspaceIntegrationMigrations(
 ) {
 	t.Helper()
 	for _, migration := range []struct {
-		scope string
-		path  string
+		scope   string
+		version uint64
+		name    string
+		path    string
 	}{
-		{scope: "workspace", path: "migrations/000001_init.sql"},
-		{scope: "outbox", path: "../outbox/migrations/000001_init.sql"},
+		{scope: "workspace", version: 1, name: "init", path: "migrations/000001_init.sql"},
+		{
+			scope: "workspace", version: 2, name: "canonical_agent_fingerprint",
+			path: "migrations/000002_canonical_agent_fingerprint.sql",
+		},
+		{
+			scope: "workspace", version: 3, name: "paired_agent_list_index",
+			path: "migrations/000003_paired_agent_list_index.sql",
+		},
+		{scope: "outbox", version: 1, name: "init", path: "../outbox/migrations/000001_init.sql"},
 	} {
 		sql, err := os.ReadFile(migration.path)
 		if err != nil {
 			t.Fatalf("read %s migration: %v", migration.scope, err)
 		}
 		if err := postgresx.ApplyMigrations(ctx, database, []postgresx.Migration{{
-			Scope: migration.scope, Version: 1, Name: "init", SQL: string(sql),
+			Scope: migration.scope, Version: migration.version, Name: migration.name, SQL: string(sql),
 		}}); err != nil {
 			t.Fatalf("apply %s migration: %v", migration.scope, err)
 		}
@@ -277,6 +291,7 @@ func insertAgentFixture(
 	keyByte byte,
 ) {
 	t.Helper()
+	publicKey := bytes.Repeat([]byte{keyByte}, 32)
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO workspace.agents (
 			id, user_id, name, static_public_key, public_key_fingerprint, version, created_at
@@ -284,8 +299,8 @@ func insertAgentFixture(
 		agentID,
 		ownerID,
 		"Integration workspace agent",
-		bytes.Repeat([]byte{keyByte}, 32),
-		"fixture:"+agentID,
+		publicKey,
+		rawAgentFingerprint(publicKey),
 		"0.1.0",
 		createdAt,
 	); err != nil {
@@ -303,6 +318,7 @@ func insertCommittedAgentFixture(
 ) string {
 	t.Helper()
 	agentID := newWorkspaceIntegrationID(t)
+	publicKey := bytes.Repeat([]byte{keyByte}, 32)
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO workspace.agents (
 			id, user_id, name, static_public_key, public_key_fingerprint, version, created_at
@@ -310,8 +326,8 @@ func insertCommittedAgentFixture(
 		agentID,
 		ownerID,
 		"Committed workspace agent",
-		bytes.Repeat([]byte{keyByte}, 32),
-		"fixture:"+agentID,
+		publicKey,
+		rawAgentFingerprint(publicKey),
 		"0.1.0",
 		createdAt,
 	); err != nil {

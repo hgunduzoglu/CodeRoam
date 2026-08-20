@@ -1,4 +1,4 @@
-FROM golang:1.26.5-alpine AS build
+FROM golang:1.26.6-alpine AS build
 WORKDIR /src
 COPY packages/go/ids/go.mod ./packages/go/ids/
 COPY packages/go/postgresx/go.mod packages/go/postgresx/go.sum ./packages/go/postgresx/

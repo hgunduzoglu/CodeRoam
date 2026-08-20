@@ -245,7 +245,7 @@ The initial pairing runs through the relay without trusting the relay with sessi
 3. The agent displays a QR code containing:
    - pairing identifier,
    - agent static public-key fingerprint,
-   - a random 128-bit pairing secret,
+   - a random 256-bit pairing secret,
    - protocol version and expiry.
 4. Manual fallback uses an equivalent high-entropy base32 secret, not a six-digit PIN.
 5. An authenticated mobile user scans or enters the payload.

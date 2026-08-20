@@ -36,5 +36,27 @@ class EndpointRole extends $pb.ProtobufEnum {
   const EndpointRole._(super.value, super.name);
 }
 
+class TicketPurpose extends $pb.ProtobufEnum {
+  static const TicketPurpose TICKET_PURPOSE_UNSPECIFIED =
+      TicketPurpose._(0, _omitEnumNames ? '' : 'TICKET_PURPOSE_UNSPECIFIED');
+  static const TicketPurpose TICKET_PURPOSE_PAIRING =
+      TicketPurpose._(1, _omitEnumNames ? '' : 'TICKET_PURPOSE_PAIRING');
+  static const TicketPurpose TICKET_PURPOSE_SESSION =
+      TicketPurpose._(2, _omitEnumNames ? '' : 'TICKET_PURPOSE_SESSION');
+
+  static const $core.List<TicketPurpose> values = <TicketPurpose>[
+    TICKET_PURPOSE_UNSPECIFIED,
+    TICKET_PURPOSE_PAIRING,
+    TICKET_PURPOSE_SESSION,
+  ];
+
+  static final $core.List<TicketPurpose?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 2);
+  static TicketPurpose? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const TicketPurpose._(super.value, super.name);
+}
+
 const $core.bool _omitEnumNames =
     $core.bool.fromEnvironment('protobuf.omit_enum_names');

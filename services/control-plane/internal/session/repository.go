@@ -19,10 +19,11 @@ var (
 
 type Repository struct {
 	operationMax time.Duration
+	now          func() time.Time
 }
 
 func NewRepository() *Repository {
-	return &Repository{operationMax: repositoryOperationTimeout}
+	return &Repository{operationMax: repositoryOperationTimeout, now: time.Now}
 }
 
 func (repository *Repository) Create(ctx context.Context, tx pgx.Tx, session Session) error {

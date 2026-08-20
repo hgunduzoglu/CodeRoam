@@ -1,8 +1,9 @@
-FROM golang:1.26.5-alpine AS build
+FROM golang:1.26.6-alpine AS build
 WORKDIR /src
 COPY packages/go/cryptox/go.mod ./packages/go/cryptox/
 COPY packages/go/ids/go.mod ./packages/go/ids/
 COPY packages/go/postgresx/go.mod packages/go/postgresx/go.sum ./packages/go/postgresx/
+COPY protocol/gen/go/go.mod protocol/gen/go/go.sum ./protocol/gen/go/
 COPY services/control-plane/go.mod services/control-plane/go.sum ./services/control-plane/
 WORKDIR /src/services/control-plane
 RUN go mod download
@@ -10,6 +11,7 @@ WORKDIR /src
 COPY packages/go/cryptox/ ./packages/go/cryptox/
 COPY packages/go/ids/ ./packages/go/ids/
 COPY packages/go/postgresx/ ./packages/go/postgresx/
+COPY protocol/gen/go/ ./protocol/gen/go/
 COPY services/control-plane/ ./services/control-plane/
 WORKDIR /src/services/control-plane
 RUN CGO_ENABLED=0 go build -trimpath -o /out/coderoam-api ./cmd/api
