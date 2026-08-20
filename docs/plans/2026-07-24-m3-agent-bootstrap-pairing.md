@@ -308,6 +308,9 @@ compatibility seams rather than delivered as one large file replacement.
 - [x] Implement device-owned and workspace-owned paired listing boundaries.
 - [x] Implement signed agent artifact generation and verification documentation.
 - [ ] Implement bounded agent bootstrap and outbound pairing lifecycle.
+  - [x] Create hash-only pairing attempts and return a purpose-bound agent ticket plus raw
+        bootstrap credential only after a successful database commit.
+  - [ ] Expose the rate-limited bootstrap endpoint and connect the bounded agent pairing command.
 - [ ] Implement pairing-only relay admission, routing, replay, and cleanup.
 - [ ] Implement cross-language XXpsk3 pairing and two-sided confirmation.
 - [ ] Implement Flutter QR/manual pairing and retry/reconciliation UX.
@@ -470,6 +473,16 @@ compatibility seams rather than delivered as one large file replacement.
   and signer digest before a root-owned binary is executed by a dedicated non-root account. Never
   overwrite an existing release, move or delete a release tag, add autonomous update, or treat the
   current starter runtime as production-ready.
+- 2026-08-20: Let the agent choose the short-lived pairing ID, durable candidate agent ID, public
+  identity metadata, and an expiry no more than five minutes after the control-plane clock. The
+  control plane recomputes and matches the canonical fingerprint, owns relay region, ticket ID,
+  nonce, and time window, persists only the attempt-bound hash of its random 256-bit bootstrap
+  credential, and returns the raw credential and signed agent ticket only after commit. Reserve
+  five seconds of the ticket's one-minute window for explicit clock skew and cap its claim expiry
+  five seconds before the attempt expiry so the relay's acceptance skew cannot outlive the durable
+  attempt. Treat commit acknowledgement loss as terminal for that bootstrap response: return no
+  capability and require a fresh pairing ID while the unreachable attempt expires. Do not expose
+  the unauthenticated HTTP route until its request bounds and rate-limit boundary are implemented.
 
 ## Validation
 

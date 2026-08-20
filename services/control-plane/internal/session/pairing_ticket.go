@@ -2,6 +2,7 @@ package session
 
 import (
 	"crypto/ed25519"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"time"
@@ -14,6 +15,7 @@ import (
 const (
 	pairingTicketProtocolVersion = 1
 	pairingTicketNonceSize       = 32
+	maxPairingTicketEncodedSize  = 2 * 1024
 	maxPairingTicketLifetime     = time.Minute
 )
 
@@ -31,7 +33,14 @@ func NewPairingTicketSigner(
 	keyID string,
 	privateKey ed25519.PrivateKey,
 ) (*PairingTicketSigner, error) {
-	if keyID == "" || len(keyID) > 64 || len(privateKey) != ed25519.PrivateKeySize {
+	if !validPairingTicketKeyID(keyID) || len(privateKey) != ed25519.PrivateKeySize {
+		return nil, ErrInvalidPairingTicket
+	}
+	seed := privateKey.Seed()
+	defer clear(seed)
+	expectedPrivateKey := ed25519.NewKeyFromSeed(seed)
+	defer clear(expectedPrivateKey)
+	if allZero(seed) || subtle.ConstantTimeCompare(privateKey, expectedPrivateKey) != 1 {
 		return nil, ErrInvalidPairingTicket
 	}
 
@@ -70,6 +79,9 @@ func (s *PairingTicketSigner) SignPairingTicket(
 	if err != nil {
 		return nil, fmt.Errorf("%w: encode envelope: %v", ErrInvalidPairingTicket, err)
 	}
+	if len(encoded) == 0 || len(encoded) > maxPairingTicketEncodedSize {
+		return nil, fmt.Errorf("%w: invalid encoded size", ErrInvalidPairingTicket)
+	}
 	return encoded, nil
 }
 
@@ -85,11 +97,11 @@ func validatePairingTicketClaims(claims *relayv1.ConnectionTicketClaims) error {
 	if !validOpaqueID(claims.GetTicketId()) ||
 		!validOpaqueID(claims.GetRouteId()) ||
 		!validOpaqueID(claims.GetEndpointId()) ||
-		!boundedNonempty(claims.GetRelayRegion(), 64) ||
-		!boundedNonempty(claims.GetKeyId(), 64) {
+		!validRelayRegion(claims.GetRelayRegion()) ||
+		!validPairingTicketKeyID(claims.GetKeyId()) {
 		return fmt.Errorf("%w: missing or oversized identifier", ErrInvalidPairingTicket)
 	}
-	if len(claims.GetNonce()) != pairingTicketNonceSize {
+	if len(claims.GetNonce()) != pairingTicketNonceSize || allZero(claims.GetNonce()) {
 		return fmt.Errorf("%w: invalid nonce", ErrInvalidPairingTicket)
 	}
 
@@ -107,8 +119,8 @@ func validatePairingTicketClaims(claims *relayv1.ConnectionTicketClaims) error {
 	return nil
 }
 
-func boundedNonempty(value string, limit int) bool {
-	return value != "" && len(value) <= limit
+func validPairingTicketKeyID(value string) bool {
+	return validRelayRegion(value)
 }
 
 func validOpaqueID(value string) bool {

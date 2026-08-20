@@ -269,7 +269,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   (cd services/control-plane && \
     POSTGRES_TEST_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' \
       go test -count=1 \
-        -run '^(TestPairingAttemptMigrationIntegration|TestPairingAttemptRepositoryIntegration|TestPairingCompletionIntegration|TestRepositoryCreateIntegration|TestServiceStartIntegration)$' \
+        -run '^(TestPairingAttemptMigrationIntegration|TestPairingAttemptRepositoryIntegration|TestPairingBootstrapServiceIntegration|TestPairingCompletionIntegration|TestRepositoryCreateIntegration|TestServiceStartIntegration)$' \
         ./internal/session)
   (cd services/control-plane && \
     POSTGRES_TEST_DSN='postgres://postgres:postgres@localhost:5432/coderoam?sslmode=disable' \

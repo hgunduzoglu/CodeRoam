@@ -50,6 +50,34 @@ func TestPairingTicketSignerProducesDeterministicVerifiableEnvelope(t *testing.T
 	}
 }
 
+func TestNewPairingTicketSignerRejectsInvalidPrivateKeys(t *testing.T) {
+	allZeroSeedKey := ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize))
+	inconsistentKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x42}, ed25519.SeedSize))
+	inconsistentKey[ed25519.SeedSize] ^= 0x01
+
+	for name, privateKey := range map[string]ed25519.PrivateKey{
+		"all-zero seed":            allZeroSeedKey,
+		"inconsistent public half": inconsistentKey,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := NewPairingTicketSigner("m3-current", privateKey); !errors.Is(err, ErrInvalidPairingTicket) {
+				t.Fatalf("NewPairingTicketSigner() error = %v, want %v", err, ErrInvalidPairingTicket)
+			}
+		})
+	}
+}
+
+func TestNewPairingTicketSignerRejectsNoncanonicalKeyIDs(t *testing.T) {
+	privateKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x42}, ed25519.SeedSize))
+	for _, keyID := range []string{"", "M3-current", "m3--current", "m3/current", "m3\ncurrent"} {
+		t.Run(keyID, func(t *testing.T) {
+			if _, err := NewPairingTicketSigner(keyID, privateKey); !errors.Is(err, ErrInvalidPairingTicket) {
+				t.Fatalf("NewPairingTicketSigner(%q) error = %v, want %v", keyID, err, ErrInvalidPairingTicket)
+			}
+		})
+	}
+}
+
 func TestPairingTicketSignerRejectsInvalidClaims(t *testing.T) {
 	privateKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x42}, ed25519.SeedSize))
 	signer, err := NewPairingTicketSigner("m3-current", privateKey)
@@ -71,8 +99,14 @@ func TestPairingTicketSignerRejectsInvalidClaims(t *testing.T) {
 		"malformed route ID": func(claims *relayv1.ConnectionTicketClaims) {
 			claims.RouteId = "route-1"
 		},
+		"noncanonical relay region": func(claims *relayv1.ConnectionTicketClaims) {
+			claims.RelayRegion = "EU-test-1"
+		},
 		"short nonce": func(claims *relayv1.ConnectionTicketClaims) {
 			claims.Nonce = []byte("short")
+		},
+		"all-zero nonce": func(claims *relayv1.ConnectionTicketClaims) {
+			claims.Nonce = make([]byte, pairingTicketNonceSize)
 		},
 		"long lifetime": func(claims *relayv1.ConnectionTicketClaims) {
 			claims.ExpiresAtUnixSeconds = claims.IssuedAtUnixSeconds + 61
